@@ -19,6 +19,7 @@ print("Hello world, how many modules are there today?")
 conndata = mat73.loadmat(os.path.join(DATA_DIR,INP_F))
 
 # %%
+network_type = 'ImCoh'
 conn_matrix = conndata["seizure"]["imcoh_all_windowed"]
 np.shape(conn_matrix)
 # results will show (num_freq_bin, num_windows, n_contact, n_contact)
@@ -32,7 +33,7 @@ b_ind = band_ind[BAND]
 slice_num = 100
 bandSlice = conn_matrix[b_ind, slice_num,:,:]
 sns.histplot(bandSlice.flatten())
-plt.title(f"Histogram of PDC Values for {slice_num}th slice in {BAND}")
+plt.title(f"Histogram of {network_type} Values for {slice_num}th slice in {BAND}")
 
 # %%
 #Interestingly this is a skewed distribution with values mostly 
@@ -54,9 +55,33 @@ ci = np.random.randint(1,42,(42,1))
 param_errors = np.zeros((1000,1))
 print(ci.shape)
 gammas = np.linspace(0.01,3,1000)
+#setup
+
+# %% 
+def consensus_modularity(W, ci, g,n=10):
+    d = min(W.shape) # assume n > d here
+    
+    C = np.zeros((n,d))
+    Q = np.zeros((n, 1))
+    
+    for i in range(n):
+        ci,q = bct.community_louvain(W,gamma=g,ci=ci)
+        C[i,:] = ci
+        Q[i,:] = q
+    W1 = np.zeros(W.shape)
+
+    for i in range(n):
+        ci = np.expand_dims(C[i,:],1)
+        KKi = ci == ci.T
+        W1 += KKi.astype(float)
+    W1 = W1/n
+    c_consennsus, q_consensus = bct.community_louvain(W1, gamma=g)
+    return c_consennsus, q_consensus
+
 for i,g in enumerate(gammas):
     try:
-        ci,q = bct.community_louvain(bandSlice,gamma=g,ci=ci)
+        
+        ci, q = consensus_modularity(bandSlice, ci, g)
         C[i,:] = ci
         Q[i,:] = q
     except BCTParamError:
