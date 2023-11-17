@@ -1,12 +1,32 @@
 import sys
-from pathos.pools import ParallelPool
+import os
+from pathos.pools import ProcessPool
 import getopt
 import crp
     
-def call_crp(inp_line):
-    subj,stim,ma = inp_line.split(",")
+def prep_dirs(inp_line):
+    _, _, _, pathout = get_params(inp_line)
+    if not os.path.exists(pathout):
+        os.mkdir(pathout)
+    fig_dir = os.path.join(pathout,"figs")
+    if not os.path.exists(fig_dir):
+        os.mkdir(fig_dir)
+    deriv_dir = os.path.join(pathout, 'derivatives')
+    if not os.path.exists(deriv_dir):
+        os.mkdir(deriv_dir)
+
+def get_params(inp_line):
+    params = inp_line.split(",")
+    subj = params[0].strip("\n")
+    stim = params[1].strip("\n")
+    ma = params[2].strip("\n")
     print(f"Running on {subj}, with stim sesh: {stim} at {ma}")
     pathout ='/mnt/ernie_main/Ghassan/ephys/data/'
+    pathout = os.path.join(pathout, subj)
+    return subj, stim, ma, pathout
+    
+def call_crp(inp_line):
+    subj, stim, ma, pathout, = get_params(inp_line)
     crp.run_crp_pipeline(subj, pathout, ma, stim)
 
 def main(argv):
@@ -20,9 +40,12 @@ def main(argv):
             cores = int(arg)
     print(f'cores specified: {cores}')
     #parse args into lists to execute
-    pool = ParallelPool(nodes=cores)
+    pool = ProcessPool(nodes=cores)
     with open(input_f, 'r') as f:
         input_lines = f.readlines()
+    for l in input_lines:
+        prep_dirs(l)
+
     pool.map(call_crp, input_lines)
 
 if __name__ == "__main__":

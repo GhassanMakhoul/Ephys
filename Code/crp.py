@@ -19,6 +19,7 @@ warnings.filterwarnings('ignore')
 import pdb
 DATA_FOLDER = '/mnt/ernie_main/000_Data/SPES/data/preprocessed/'
 
+
 def construct_spes_df(spes_trains, contact_labels, fs,reref=None):
     assert len(contact_labels) == min(spes_trains.shape)
     if np.argmax(spes_trains.shape) != 0:
@@ -49,8 +50,11 @@ def plot_channels(spes_df , channel_list,save=False,fout=''):
     for i,ch in enumerate(channel_list):
         ax = axes[i]
         sns.lineplot(x=spes_df.index, y=spes_df[ch], ax=ax)
+    fig.suptitle("Average SP Resp")
+
     if save:
         plt.savefig(fout, transparent=True)
+    plt.close()
     
 def t_ix(t,fs=512):
     return round(t*fs)
@@ -140,13 +144,15 @@ def lin_PCA(V):
     V_kernel = V@eigen_vectors
     return V_kernel / S[None,:]
 
-def plot_cross_project(S, pathout, ma, stim, contact):
-    sns.lineplot(data=S, x="win_size", y="cross_proj")
-    fout = os.path.join(pathout, f'figs/cross_proj_{contact}_{stim}_{ma}.pdf')
-    plt.title("Cross Proj for {contact} resp to {stim}")
+def plot_cross_project(S, pathout, subj, ma, stim, contact):
 
-    plt.savefig(fout, transparent=True)
-
+    with sns.plotting_context("paper"):
+        sns.lineplot(data=S, x="win_size", y="cross_proj")
+        fout = os.path.join(pathout, f'figs/{subj}_cross_proj_{contact}_{stim}_{ma}.pdf')
+        plt.title(f"Cross Proj for {contact} resp to {stim}")
+        plt.legend( bbox_to_anchor=[1.15, 0.5], loc='right')
+        plt.savefig(fout, transparent=True)
+    plt.close()
 def get_tr(cross_proj_df):
     m = cross_proj_df.groupby(by='win_size').mean()
     max_val = np.max(m['cross_proj'].values)
@@ -189,31 +195,32 @@ def plot_reparam_trials(trial_reparam_df, k,fout):
     plt.legend( bbox_to_anchor=[1.15, 0.5], loc='center', labels=['Raw','Proj','Epsilon'])
     fig.suptitle("CRP Reparamaterization")
     plt.savefig(fout,transparent=True)
+    plt.close()
 
-def plot_reparam_agg(trial_reparam_df, fout):
+def plot_reparam_agg(trial_reparam_df, fout, proc='RAW'):
     my_colors = ['r']*10+['g']*10+['k']*10 +['y']
     trial_reparam_df.plot(kind='line',x='time',  color=my_colors)
     plt.legend( bbox_to_anchor=[1.15, 0.5], loc='center')
-    plt.title("Reparamaterization on raw voltage")
+    plt.title("Reparamaterization on {proc} voltage")
     plt.savefig(fout,transparent=True)
-
+    plt.close()
 
 def run_crp_pipeline(subj, pathout, ma, stim):
     spes_df, fs = assemble_trial(subj, stim, ma)
-    spes_df.to_csv(os.path.join(pathout,f'spes_{stim}_{ma}.csv'))
+    spes_df.to_csv(os.path.join(pathout,f'derivatives/spes_{stim}_{ma}.csv'))
     
     print("Saving Average Responses")
     for reg in tqdm(get_regions(spes_df.columns[0:-1])):
         cols = [c for c in spes_df.columns if reg == re.sub('[0-9]+','',c)]
-        fout = os.path.join(pathout,f"figs/avg_sp_resp_{stim}_stim_{reg}.pdf")
+        fout = os.path.join(pathout,f"figs/{subj}_avg_sp_resp_{stim}_stim_{reg}.pdf")
         plot_channels(spes_df, cols,save=True,fout=fout)
 
     print("Running Cross Projection!")
     for contact in tqdm(spes_df.columns[0:-1]):
         V_trial = spes_df.pivot( columns='trial', values=contact)
         S = cross_project_trial(V_trial.values,fs)
-        S.to_csv(os.path.join(pathout,f'derivatives/cross_proj_{stim}_{contact}_{ma}.csv' ))
-        plot_cross_project(S, pathout, ma, stim, contact)
+        S.to_csv(os.path.join(pathout,f'derivatives/{subj}_cross_proj_{stim}_{contact}_{ma}.csv' ))
+        plot_cross_project(S, pathout,subj, ma, stim, contact)
 
         tr_ind, tr_win = get_tr(S)
         V_tr = V_trial.values[0:tr_ind,:]
@@ -225,9 +232,9 @@ def run_crp_pipeline(subj, pathout, ma, stim):
         canonical_response = eigenV[:,0] #get top PC for crp
  
         trial_reparam_df = reparam_trial(V_tr, canonical_response, tr_win)
-        fout = os.path.join(pathout, f'figs/reparam_trials_{contact}_stim_{stim}_{ma}.pdf')
+        fout = os.path.join(pathout, f'figs/{subj}_reparam_trials_{contact}_stim_{stim}_{ma}.pdf')
         plot_reparam_trials(trial_reparam_df, k, fout)
-        fout = os.path.join(pathout, f'figs/reparam_agg_{contact}_stim_{stim}_{ma}.pdf')
+        fout = os.path.join(pathout, f'figs/{subj}_reparam_agg_{contact}_stim_{stim}_{ma}.pdf')
         plot_reparam_agg(trial_reparam_df,fout)
 
         ## on norm data
@@ -235,8 +242,8 @@ def run_crp_pipeline(subj, pathout, ma, stim):
         V_norm =V_tr/ norm[:,None]
         #TODO look at this tomorrow
         norm_reparam_df = reparam_trial(V_norm, canonical_response, tr_win)
-        fout = os.path.join(pathout, f'figs/reparam_NORM_agg_{contact}_stim_{stim}_{ma}.pdf')
-        plot_reparam_agg(norm_reparam_df,fout)
+        fout = os.path.join(pathout, f'figs/{subj}_reparam_NORM_agg_{contact}_stim_{stim}_{ma}.pdf')
+        plot_reparam_agg(norm_reparam_df,fout, proc='NORMED')
 
 def main(argv):
     subj = ''
