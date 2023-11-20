@@ -207,7 +207,7 @@ def plot_reparam_agg(trial_reparam_df, fout, proc='RAW'):
 
 def run_crp_pipeline(subj, pathout, ma, stim):
     spes_df, fs = assemble_trial(subj, stim, ma)
-    spes_df.to_csv(os.path.join(pathout,f'derivatives/spes_{stim}_{ma}.csv'))
+    spes_df.to_csv(os.path.join(pathout,f'spes_{stim}_{ma}.csv'))
     
     print("Saving Average Responses")
     for reg in tqdm(get_regions(spes_df.columns[0:-1])):
@@ -244,6 +244,16 @@ def run_crp_pipeline(subj, pathout, ma, stim):
         norm_reparam_df = reparam_trial(V_norm, canonical_response, tr_win)
         fout = os.path.join(pathout, f'figs/{subj}_reparam_NORM_agg_{contact}_stim_{stim}_{ma}.pdf')
         plot_reparam_agg(norm_reparam_df,fout, proc='NORMED')
+
+    ## package out derivatives and data 
+    print("Packaging out Results and Derivative Data")
+    #with HDF5 save:
+    # CRP and epsilon (alpha, snr, and other measures are metadata)
+    # reparam trials 
+    # raw TxK grouping
+    # cross projections
+    # file structure goes like this: 
+    # [Subj/stim_sesh/]
 
 def main(argv):
     subj = ''
