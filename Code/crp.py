@@ -67,10 +67,12 @@ def assemble_trial(subj, stim_pair, ma):
     spes_dfs = []
     for pulse in range(1,11):
         file = f'{subj}/{subj}_CCEP_single_pulses/{subj}_{stim_pair}_{ma}_pulse_{pulse}.mat'
-        if not os.path.isfile(file):
+        file_path = os.path.join(DATA_FOLDER, file)
+        if not os.path.isfile(file_path):
+            print(f"File not exist:  {file}")
             continue #check to see if file exists then skip if not
         print(f"Loading {file}")
-        spes_trial = loadmat(os.path.join(DATA_FOLDER, file))
+        spes_trial = loadmat(file_path)
         fs = spes_trial['fs'][0][0]
         full_train = spes_trial["pulse"]
         labels  = [l[0] for l in spes_trial['labels'][0]]
@@ -203,7 +205,7 @@ def plot_reparam_trials(trial_reparam_df, k,fout):
     plt.close()
 
 def plot_reparam_agg(trial_reparam_df, fout, proc='RAW'):
-    my_colors = ['r']*10+['g']*10+['k']*10 +['y']
+    my_colors = ['r']*10+['g']*10+['k']*10 +['y'] #TODO fix magic number
     trial_reparam_df.plot(kind='line',x='time',  color=my_colors)
     plt.legend( bbox_to_anchor=[1.15, 0.5], loc='center')
     plt.title("Reparamaterization on {proc} voltage")
