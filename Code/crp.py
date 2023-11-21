@@ -229,26 +229,27 @@ def run_crp_pipeline(subj, pathout, ma, stim):
         canonical_response = eigenV[:,0] #get top PC for crp
 
         #plot
-        print("Plotting data") 
-        plot_cross_project(S, pathout,subj, ma, stim, contact)
+        # print("Plotting data") 
+        # plot_cross_project(S, pathout,subj, ma, stim, contact)
         
-        trial_reparam_df = reparam_trial(V_tr, canonical_response, tr_win)
-        fout = os.path.join(pathout, f'figs/{subj}_reparam_trials_{contact}_stim_{stim}_{ma}.pdf')
-        plot_reparam_trials(trial_reparam_df, k, fout)
-        fout = os.path.join(pathout, f'figs/{subj}_reparam_agg_{contact}_stim_{stim}_{ma}.pdf')
-        plot_reparam_agg(trial_reparam_df,fout)
+        # trial_reparam_df = reparam_trial(V_tr, canonical_response, tr_win)
+        # fout = os.path.join(pathout, f'figs/{subj}_reparam_trials_{contact}_stim_{stim}_{ma}.pdf')
+        # plot_reparam_trials(trial_reparam_df, k, fout)
+        # fout = os.path.join(pathout, f'figs/{subj}_reparam_agg_{contact}_stim_{stim}_{ma}.pdf')
+        # plot_reparam_agg(trial_reparam_df,fout)
 
-        ## on norm data
-        norm = np.linalg.norm(V_tr, axis=1)
-        V_norm =V_tr/ norm[:,None]
-        #TODO look at this tomorrow
-        norm_reparam_df = reparam_trial(V_norm, canonical_response, tr_win)
-        fout = os.path.join(pathout, f'figs/{subj}_reparam_NORM_agg_{contact}_stim_{stim}_{ma}.pdf')
-        plot_reparam_agg(norm_reparam_df,fout, proc='NORMED')
+        # ## on norm data
+        # norm = np.linalg.norm(V_tr, axis=1)
+        # V_norm =V_tr/ norm[:,None]
+        # #TODO look at this tomorrow
+        # norm_reparam_df = reparam_trial(V_norm, canonical_response, tr_win)
+        # fout = os.path.join(pathout, f'figs/{subj}_reparam_NORM_agg_{contact}_stim_{stim}_{ma}.pdf')
+        # plot_reparam_agg(norm_reparam_df,fout, proc='NORMED')
 
         #save:
         print("Packaging out Results and Derivative Data")
         ## package out derivatives and data 
+        
         writeout(eigenV,S, V_tr, fs, tr_win, pathout, subj, stim, contact, ma)
 
 def writeout(basis, S, V_tr, fs, tr_win, pathout: str, subj: str, stim :str, contact :str, ma :str):
@@ -273,7 +274,7 @@ def writeout(basis, S, V_tr, fs, tr_win, pathout: str, subj: str, stim :str, con
         V_tr (numpy.array): windowed trials matrix TR (numsamps) x k (num trials)
         fs (float) : sampling rate
         t_win (numpy.array): indices marking response duration
-        pathout (str): folder to saveh hdf5 a
+        athout (str): folder to saveh hdf5 a
         subj (str): 
         stim (str): 
         contact (str):
@@ -281,10 +282,14 @@ def writeout(basis, S, V_tr, fs, tr_win, pathout: str, subj: str, stim :str, con
     """
     crp = basis[:,0]
     alphas, proj, ep = reparam(V_tr, crp)
-    h5f = os.path.join(pathout,subj +'.hdf5')
-
-    key = f'/{stim}_{ma}/response_{contact}/'
-    S.to_hdf(h5f, key=os.path.join(key,'cross_proj'), mode='a')
+    h5f = os.path.join(pathout,'stim_resp.hdf5')
+    key = f'/response_{contact}/'
+    try:
+        S.to_hdf(h5f, key=os.path.join(key,'cross_proj'), mode='a')
+    except:
+        print(f"Going to fail on this key: {key}")
+        S.to_hdf(h5f, key=os.path.join(key,'cross_proj'), mode='a')
+    #     raise(ValueError, f"failed to save cross proj of {key}")
 
     with h5py.File(h5f, 'a') as f:
         grp  =f[key]      

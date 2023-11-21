@@ -22,7 +22,7 @@ def get_params(inp_line):
     ma = params[2].strip("\n")
     print(f"Running on {subj}, with stim sesh: {stim} at {ma}")
     pathout ='/mnt/ernie_main/Ghassan/ephys/data/'
-    pathout = os.path.join(pathout, subj)
+    pathout = os.path.join(pathout, subj,f'{stim}_{ma}')
     return subj, stim, ma, pathout
     
 def call_crp(inp_line):

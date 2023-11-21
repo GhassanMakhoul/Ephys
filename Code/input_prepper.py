@@ -22,13 +22,21 @@ def make_input_files(folders, files):
         inpdir = os.path.join(OUTDIR,'input_files' ,subj)
         if not os.path.exists(inpdir):
             os.mkdir(inpdir)
+        open(os.path.join(OUTDIR, 'input_files',subj, 'inp.csv'), 'w').close() #clears files
+    
+    files = filter_pulses(files)
+
+    print(f"Writing out input: {len(files)}")
     for f in files:
-        tmp = f.split("/")
-        pulse_file = tmp[-1]
-        subj, stim, ma, _,_ = pulse_file.split("_")
+        subj, stim, ma = f.split("_")
         with open(os.path.join(OUTDIR, 'input_files', subj,'inp.csv'), 'a') as f:
             f.write(f'{subj},{stim},{ma}\n')
-    
+
+def filter_pulses(files):
+    files = [f.split('/')[-1].split("_")[0:3] for f in files ]
+    files = set(["_".join(f) for f in files])
+    return files
+
 
 def main(argv):
     inpdir = '/mnt/ernie_main/000_Data/SPES/data/preprocessed/'
