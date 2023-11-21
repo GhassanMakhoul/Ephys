@@ -24,7 +24,17 @@ def get_params(inp_line):
     pathout ='/mnt/ernie_main/Ghassan/ephys/data/'
     pathout = os.path.join(pathout, subj,f'{stim}_{ma}')
     return subj, stim, ma, pathout
-    
+
+# def validate_input_file(inp_line, inp_dir):
+#     """Returns true if input file exsts
+
+#     Args:
+#         inp_line (str): unparsed inputline
+#     """
+#     subj, stim, ma, pathout = get_params(inp_line)
+#     f = f'{subj}_{stim}_{ma}_'
+#     return os.path.isfile(inp_f)
+
 def call_crp(inp_line):
     subj, stim, ma, pathout, = get_params(inp_line)
     crp.run_crp_pipeline(subj, pathout, ma, stim)

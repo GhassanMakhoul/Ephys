@@ -60,12 +60,15 @@ def plot_channels(spes_df , channel_list,save=False,fout=''):
     
 def t_ix(n_samp,fs=512):
     return round(fs*n_samp)
-    
+
+#TODO remove IO/ file prep from main pipelin and add to runner
 def assemble_trial(subj, stim_pair, ma):
     files = []
     spes_dfs = []
     for pulse in range(1,11):
         file = f'{subj}/{subj}_CCEP_single_pulses/{subj}_{stim_pair}_{ma}_pulse_{pulse}.mat'
+        if not os.path.isfile(file):
+            continue #check to see if file exists then skip if not
         print(f"Loading {file}")
         spes_trial = loadmat(os.path.join(DATA_FOLDER, file))
         fs = spes_trial['fs'][0][0]
