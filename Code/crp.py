@@ -1,10 +1,11 @@
-#I O Setup
+#I/O  Setup
 import os
 import sys
 import getopt
 import re
+import h5py
 
-#math packages
+#data and math packages
 import numpy as np
 import pandas as pd
 from scipy.io import loadmat
@@ -17,6 +18,7 @@ from tqdm import tqdm
 import warnings
 warnings.filterwarnings('ignore')
 import pdb
+
 DATA_FOLDER = '/mnt/ernie_main/000_Data/SPES/data/preprocessed/'
 
 
@@ -56,8 +58,8 @@ def plot_channels(spes_df , channel_list,save=False,fout=''):
         plt.savefig(fout, transparent=True)
     plt.close()
     
-def t_ix(t,fs=512):
-    return round(t*fs)
+def t_ix(n_samp,fs=512):
+    return round(fs*n_samp)
     
 def assemble_trial(subj, stim_pair, ma):
     files = []
@@ -210,27 +212,26 @@ def run_crp_pipeline(subj, pathout, ma, stim):
     spes_df.to_csv(os.path.join(pathout,f'spes_{stim}_{ma}.csv'))
     
     print("Saving Average Responses")
-    for reg in tqdm(get_regions(spes_df.columns[0:-1])):
-        cols = [c for c in spes_df.columns if reg == re.sub('[0-9]+','',c)]
-        fout = os.path.join(pathout,f"figs/{subj}_avg_sp_resp_{stim}_stim_{reg}.pdf")
-        plot_channels(spes_df, cols,save=True,fout=fout)
+    #for reg in tqdm(get_regions(spes_df.columns[0:-1])):
+    #    cols = [c for c in spes_df.columns if reg == re.sub('[0-9]+','',c)]
+    #    fout = os.path.join(pathout,f"figs/{subj}_avg_sp_resp_{stim}_stim_{reg}.pdf")
+    #    plot_channels(spes_df, cols,save=True,fout=fout)
 
     print("Running Cross Projection!")
     for contact in tqdm(spes_df.columns[0:-1]):
+        #calc
         V_trial = spes_df.pivot( columns='trial', values=contact)
         S = cross_project_trial(V_trial.values,fs)
-        S.to_csv(os.path.join(pathout,f'derivatives/{subj}_cross_proj_{stim}_{contact}_{ma}.csv' ))
-        plot_cross_project(S, pathout,subj, ma, stim, contact)
-
         tr_ind, tr_win = get_tr(S)
         V_tr = V_trial.values[0:tr_ind,:]
         eigenV = lin_PCA(V_tr)
-        fout = os.path.join(pathout, f'derivatives/crp_{stim}_{contact}_{ma}.npy')
-        np.save(fout,eigenV)
-
         n_t, k = eigenV.shape
         canonical_response = eigenV[:,0] #get top PC for crp
- 
+
+        #plot
+        print("Plotting data") 
+        plot_cross_project(S, pathout,subj, ma, stim, contact)
+        
         trial_reparam_df = reparam_trial(V_tr, canonical_response, tr_win)
         fout = os.path.join(pathout, f'figs/{subj}_reparam_trials_{contact}_stim_{stim}_{ma}.pdf')
         plot_reparam_trials(trial_reparam_df, k, fout)
@@ -245,15 +246,64 @@ def run_crp_pipeline(subj, pathout, ma, stim):
         fout = os.path.join(pathout, f'figs/{subj}_reparam_NORM_agg_{contact}_stim_{stim}_{ma}.pdf')
         plot_reparam_agg(norm_reparam_df,fout, proc='NORMED')
 
-    ## package out derivatives and data 
-    print("Packaging out Results and Derivative Data")
-    #with HDF5 save:
-    # CRP and epsilon (alpha, snr, and other measures are metadata)
-    # reparam trials 
-    # raw TxK grouping
-    # cross projections
-    # file structure goes like this: 
-    # [Subj/stim_sesh/]
+        #save:
+        print("Packaging out Results and Derivative Data")
+        ## package out derivatives and data 
+        writeout(eigenV,S, V_tr, fs, tr_win, pathout, subj, stim, contact, ma)
+
+def writeout(basis, S, V_tr, fs, tr_win, pathout: str, subj: str, stim :str, contact :str, ma :str):
+    """writeout deriviative data to an hdf5 file. Follows the following hierearchy
+    filename is subject, the n create groups
+
+    hdf5['/stim_sesh/resp_contact/...]
+        group attrs : {fs: sampling rate, tr_win: (ix1, ix2), Tr: resp (s)}
+
+        datasets:
+        .../V_tr 
+        .../S {fs: sampling rate, tr_win: (ix1, ix2), Tr: resp(s)}
+        .../crp
+        .../alphas
+        .../epsilons
+        .../alphas_prime
+
+
+    Args:
+        basis ( nd.array): canonicl responses  from linear kernel pca
+        S (numpy.array): seminormalized cross projections of resp trials
+        V_tr (numpy.array): windowed trials matrix TR (numsamps) x k (num trials)
+        fs (float) : sampling rate
+        t_win (numpy.array): indices marking response duration
+        pathout (str): folder to saveh hdf5 a
+        subj (str): 
+        stim (str): 
+        contact (str):
+        ma (str): _
+    """
+    crp = basis[:,0]
+    alphas, proj, ep = reparam(V_tr, crp)
+    h5f = os.path.join(pathout,subj +'.hdf5')
+
+    key = f'/{stim}_{ma}/response_{contact}/'
+    S.to_hdf(h5f, key=os.path.join(key,'cross_proj'), mode='a')
+
+    with h5py.File(h5f, 'a') as f:
+        grp  =f[key]      
+        
+        grp.attrs['fs'] = fs
+        grp.attrs['tr_win'] = (0,tr_win) #assumes starting at 0 with clean stim artifact
+        grp.attrs['Tr'] = t_ix(tr_win,fs)
+
+
+        dset = grp.require_dataset('V_tr',V_tr.shape, float)
+        dset[:] = V_tr
+        dset = grp.require_dataset('crp',crp.shape,float)
+        dset[:] = crp
+        dset =  grp.require_dataset('alphas', alphas.shape, float)
+        dset[:] = alphas
+        dset = grp.require_dataset('epsilons', ep.shape, float)
+        dset[:] = ep
+        dset = grp.require_dataset("projections", proj.shape, float)
+        dset[:] = proj
 
 def main(argv):
     subj = ''
