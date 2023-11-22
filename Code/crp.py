@@ -4,7 +4,6 @@ import sys
 import getopt
 import re
 import h5py
-
 #data and math packages
 import numpy as np
 import pandas as pd
@@ -212,6 +211,19 @@ def plot_reparam_agg(trial_reparam_df, fout, proc='RAW'):
     plt.savefig(fout,transparent=True)
     plt.close()
 
+def setup_logs(pathout: str):
+    """Set up logging, adds dir if not exist, and adds sink
+
+    Args:
+        pathout (str): DATA_DIR/subj_stim_ma/
+    """
+    logdir = os.path.join(pathout, 'logs/')
+    if not os.isdir(logdir):
+        os.mkdir(logdir)
+    logf = os.path.join(logdir, "run.log")
+    logger.add(logf)
+    return logger
+
 def run_crp_pipeline(subj, pathout, ma, stim):
     spes_df, fs = assemble_trial(subj, stim, ma)
     spes_df.to_csv(os.path.join(pathout,f'spes_{stim}_{ma}.csv'))
@@ -330,8 +342,10 @@ def main(argv):
             stim = arg
         elif opt in ('-p', '--pathout'):
             pathout = arg
-
+    logger = setup_logs(pathout)
+    logger.info(f"Running on {subj}with stim: {stim}  at {ma}")
     run_crp_pipeline(subj, pathout, ma, stim)
+    logger.success("successfully ran!")
 
 
 if __name__ == "__main__":

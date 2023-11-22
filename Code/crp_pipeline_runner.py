@@ -3,7 +3,8 @@ import os
 from pathos.pools import ProcessPool
 import getopt
 import crp
-    
+from loguru import logger
+
 def prep_dirs(inp_line):
     _, _, _, pathout = get_params(inp_line)
     if not os.path.exists(pathout):
@@ -20,8 +21,9 @@ def get_params(inp_line):
     subj = params[0].strip("\n")
     stim = params[1].strip("\n")
     ma = params[2].strip("\n")
+
     print(f"Running on {subj}, with stim sesh: {stim} at {ma}")
-    pathout ='/mnt/ernie_main/Ghassan/ephys/data/'
+    pathout ='/mnt/ernie_main/Ghassan/ephys/data/' #TODO make modular
     pathout = os.path.join(pathout, subj,f'{stim}_{ma}')
     return subj, stim, ma, pathout
 
@@ -38,8 +40,9 @@ def get_params(inp_line):
 def call_crp(inp_line):
     subj, stim, ma, pathout, = get_params(inp_line)
     crp.run_crp_pipeline(subj, pathout, ma, stim)
-
+@logger.catch
 def main(argv):
+    logdir='logs/'
     input_f = ''
     cores = ''
     opts, _ = getopt.getopt(argv,"i:c:",["input_f=","cores="])
@@ -55,9 +58,10 @@ def main(argv):
         input_lines = f.readlines()
     for l in input_lines:
         prep_dirs(l)
-
+    subj,_,_,_ = get_params(l)
+    logger.add(os.path.join(logdir, f"run_{subj}.log"))
     pool.map(call_crp, input_lines)
-
+    logger.success(f"Successully Ran on: {subj}")
 if __name__ == "__main__":
 
     main(sys.argv[1:])

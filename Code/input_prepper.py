@@ -27,11 +27,14 @@ def make_input_files(folders, files):
     files = filter_pulses(files)
 
     print(f"Writing out input: {len(files)}")
-    for f in files:
+    for i,f in enumerate(files):
         subj, stim, ma = f.split("_")
         with open(os.path.join(OUTDIR, 'input_files', subj,'inp.csv'), 'a') as f:
-            f.write(f'{subj},{stim},{ma}\n')
+            line =f'{subj},{stim},{ma}\n'
+            f.write(line)
 
+
+    #TODO address this newline issue
 def filter_pulses(files):
     files = [f.split('/')[-1].split("_")[0:3] for f in files ]
     files = set(["_".join(f) for f in files])
