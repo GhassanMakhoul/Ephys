@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 from scipy.io import loadmat
 
-def agg_sesh_df(h5file, str):
+def agg_sesh_df(h5file):
     sesh_df =[]
     with h5py.File(h5file, 'r') as f:
         for key in f.keys():
@@ -29,7 +29,7 @@ def entry_to_df(key, resp_h5):
     """
     alphas = resp_h5['alphas']
     TR = resp_h5.attrs['Tr']
-    df = pd.DataFrame(data=alphas, column='alphas') #TODO check shape
+    df = pd.DataFrame(data=alphas, columns=['alphas']) #TODO check shape
     df['TR'] = TR
     df['resp_reg'] = key.split("_")[-1] #messy but keyshould be 'response_RH14' for example
     return df
@@ -56,7 +56,7 @@ def get_sesh_params(folder:str):
     Args:
         folder (str): folder should be of form "path/to/Con1_ConP2_#ma"
     """
-    stim_ma = folder.split("/")[0]
+    stim_ma = folder.split("/")[-1]
     return stim_ma.split("_")
 
 def agg_responses(subj: str, h5file: str, stim_folders: list, pathout: str):
