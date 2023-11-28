@@ -5,6 +5,7 @@ import getopt
 import re
 import h5py
 import glob
+from tqdm import tqdm
 
 
 #data and math packages
@@ -29,9 +30,11 @@ def entry_to_df(key, resp_h5):
     """
     alphas = resp_h5['alphas']
     TR = resp_h5.attrs['Tr']
+    fs = resp_h5.attrs['fs']
     df = pd.DataFrame(data=alphas, columns=['alphas']) #TODO check shape
     df['TR'] = TR
     df['resp_reg'] = key.split("_")[-1] #messy but keyshould be 'response_RH14' for example
+    df['alpha_prime'] = alphas/(TR) #TODO remove fs
     return df
 
 
@@ -70,7 +73,8 @@ def agg_responses(subj: str, h5file: str, stim_folders: list, pathout: str):
         pathout (str): where to save large df
     """
     dfs = []
-    for folder in stim_folders:
+
+    for folder in tqdm(stim_folders):
         h5f = os.path.join(folder, h5file)
         df = agg_sesh_df(h5f)
         df['stim_reg'], df['ma'] = get_sesh_params(folder)
@@ -82,14 +86,18 @@ def agg_responses(subj: str, h5file: str, stim_folders: list, pathout: str):
 def main(argv):
     subj = ''
     res_folder = '/mnt/ernie_main/Ghassan/ephys/data'
-  
-    opts, _ = getopt.getopt(argv,"s:i:p:",["subj=",'inpf=','pathout'])
+    inpf = 'stim_resp.hdf5'
+    opts, _ = getopt.getopt(argv,"s:i:p:",["subj=",'inpf=','pathout='])
     for opt, arg in opts:
         if opt in ("-i", 'inpf'):
-            ma = arg
+            inpf = arg
         elif opt in ("-s", "--subj"):
             subj = arg
         elif opt in ('-p', '--pathout'):
             pathout = arg
     stim_folders = get_stim_folders(subj, res_folder)
-    agg_responses(subj, 'stim_resp.hdf5', stim_folders, pathout)
+    agg_responses(subj, inpf, stim_folders, pathout)
+
+
+if __name__ == '__main__':
+    main(sys.argv[1:])

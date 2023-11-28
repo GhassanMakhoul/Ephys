@@ -4,26 +4,32 @@ import sys
 import getopt
 import re
 import h5py
+import mat73
 
 #data and math packages
 import numpy as np
 import pandas as pd
-from scipy.io import loadmat
+from scipy.io import loadmat as lm
 #plotting
 import matplotlib.pyplot as plt
 import seaborn as sns
 from tqdm import tqdm
 
-# clean up pipeline IO
+# clean up pipeline IO/dev tools
 import warnings
 warnings.filterwarnings('ignore')
 import pdb
+from loguru import logger
+
 
 DATA_FOLDER = '/mnt/ernie_main/000_Data/SPES/data/preprocessed/'
 
 
 def construct_spes_df(spes_trains, contact_labels, fs,reref=None):
-    assert len(contact_labels) == min(spes_trains.shape)
+    try:
+        assert len(contact_labels) == min(spes_trains.shape)
+    except AssertionError:
+        pdb.set_trace()
     if np.argmax(spes_trains.shape) != 0:
         spes_trains = spes_trains.T
     nsamps,ch = spes_trains.shape
@@ -58,33 +64,69 @@ def plot_channels(spes_df , channel_list,save=False,fout=''):
         plt.savefig(fout, transparent=True)
     plt.close()
     
-def t_ix(n_samp,fs=512):
-    return round(fs*n_samp)
+def ix_to_time(n_samp:int,fs=512)->float:
+    """converts sample number to time stamp n (samp) / fs (samps/sec)
+
+    Args:
+        n_samp (int): sample number, usually raw index
+        fs (int, optional): sampling rate. Defaults to 512.
+
+    Returns:
+        float: time in seconds 
+    """
+    return n_samp/fs
+
+def time_to_ix(timepoint:float, fs=512)-> int:
+    """Converts timepoint in seconds to index along evenly spaced array, assuming
+    spacing is fs.
+
+    Args:
+        timepoint (float): time in seconds
+        fs (int, optional): sampling rate samps/second. Defaults to 512.
+
+    Returns:
+        int: index along an array where each index corresponds to 1/fs unit of time
+    """
+    return round(int(timepoint*fs))
+
+def loadmat(file_path):
+    try:
+        spes =lm(file_path)
+        labels = [l[0] for l in spes['labels'][0]]
+        return {'labels': labels, 'pulse':spes['pulse'], 'fs':np.uint16(spes['fs'][0][0])} #hard coding some logic here, forcing  out of array
+    except NotImplementedError:
+        spes = mat73.loadmat(file_path)
+        spes['fs'] = np.uint16(spes['fs'])
+        return spes
 
 #TODO remove IO/ file prep from main pipelin and add to runner
+
+
 def assemble_trial(subj, stim_pair, ma):
     files = []
     spes_dfs = []
     for pulse in range(1,11):
-        file = f'{subj}/{subj}_CCEP_single_pulses/{subj}_{stim_pair}_{ma}_pulse_{pulse}.mat'
+        file = f'{subj}/{subj}_CCEP_single_pulses/{subj}_{stim_pair}_{ma}_pulse_{pulse}.mat' #TODO move 'dirty work' (I/O hardcoding) to one method
         file_path = os.path.join(DATA_FOLDER, file)
         if not os.path.isfile(file_path):
             print(f"File not exist:  {file}")
-            continue #check to see if file exists then skip if not
-        print(f"Loading {file}")
+            continue #check to see if file exists then skip if not, # would be better if just generated all pulse files directly
+        logger.info(f"Loading {file}")
         spes_trial = loadmat(file_path)
-        fs = spes_trial['fs'][0][0]
+        fs = spes_trial['fs']
         full_train = spes_trial["pulse"]
-        labels  = [l[0] for l in spes_trial['labels'][0]]
+        labels = spes_trial['labels']
         df = construct_spes_df(full_train, labels,fs, CAR) #TODO find more pipeline way
         df['trial'] =pulse
         spes_dfs.append(df)
+    
     spes_dfs = pd.concat(spes_dfs)
-    return spes_dfs, fs
+    return spes_dfs, fs #TODO refactor return to just DF with fs
 
 def get_regions(contacts):
     return set([re.sub("[0-9]+",'', c) for c in contacts])
 
+@logger.catch
 def cross_project_trial(V_full, fs, step=2):
     s =0 #paper assumes clean stim after 15ms
     n_samps, k = V_full.shape
@@ -160,13 +202,14 @@ def plot_cross_project(S, pathout, subj, ma, stim, contact):
         plt.legend( bbox_to_anchor=[1.15, 0.5], loc='right')
         plt.savefig(fout, transparent=True)
     plt.close()
+
 def get_tr(cross_proj_df):
     m = cross_proj_df.groupby(by='win_size').mean()
     max_val = np.max(m['cross_proj'].values)
 
     tr_win = m[m.cross_proj == max_val].index[0] #win_size will be index here
     #TODO change back
-    tr_ind = t_ix(tr_win) #t_ix(tr_win+.15)
+    tr_ind = time_to_ix(tr_win) #t_ix(tr_win+.15)
     return tr_ind, tr_win
 
 def reparam_trial(V_tr, canonical_response, tr_win ):
@@ -229,13 +272,13 @@ def run_crp_pipeline(subj, pathout, ma, stim):
     spes_df, fs = assemble_trial(subj, stim, ma)
     spes_df.to_csv(os.path.join(pathout,f'spes_{stim}_{ma}.csv'))
     
-    print("Saving Average Responses")
+    logger.info("Saving Average Responses")
     #for reg in tqdm(get_regions(spes_df.columns[0:-1])):
     #    cols = [c for c in spes_df.columns if reg == re.sub('[0-9]+','',c)]
     #    fout = os.path.join(pathout,f"figs/{subj}_avg_sp_resp_{stim}_stim_{reg}.pdf")
     #    plot_channels(spes_df, cols,save=True,fout=fout)
 
-    print("Running Cross Projection!")
+    logger.info("Running Cross Projection!")
     for contact in tqdm(spes_df.columns[0:-1]):
         #calc
         V_trial = spes_df.pivot( columns='trial', values=contact)
@@ -265,7 +308,7 @@ def run_crp_pipeline(subj, pathout, ma, stim):
         # plot_reparam_agg(norm_reparam_df,fout, proc='NORMED')
 
         #save:
-        print("Packaging out Results and Derivative Data")
+        logger.success("Packaging out Results and Derivative Data")
         ## package out derivatives and data 
         
         writeout(eigenV,S, V_tr, fs, tr_win, pathout, subj, stim, contact, ma)
@@ -305,7 +348,7 @@ def writeout(basis, S, V_tr, fs, tr_win, pathout: str, subj: str, stim :str, con
     try:
         S.to_hdf(h5f, key=os.path.join(key,'cross_proj'), mode='a')
     except:
-        print(f"Going to fail on this key: {key}")
+        logger.error(f"Going to fail on this key: {key}")
         S.to_hdf(h5f, key=os.path.join(key,'cross_proj'), mode='a')
     #     raise(ValueError, f"failed to save cross proj of {key}")
 
@@ -314,7 +357,7 @@ def writeout(basis, S, V_tr, fs, tr_win, pathout: str, subj: str, stim :str, con
         
         grp.attrs['fs'] = fs
         grp.attrs['tr_win'] = (0,tr_win) #assumes starting at 0 with clean stim artifact
-        grp.attrs['Tr'] = t_ix(tr_win,fs)
+        grp.attrs['Tr'] = tr_win
 
 
         dset = grp.require_dataset('V_tr',V_tr.shape, float)
@@ -343,14 +386,15 @@ def main(argv):
             stim = arg
         elif opt in ('-p', '--pathout'):
             pathout = arg
-    logger = setup_logs(pathout)
+    #logger = setup_logs(pathout)
     logger.info(f"Running on {subj}with stim: {stim}  at {ma}")
     run_crp_pipeline(subj, pathout, ma, stim)
-    logger.success("successfully ran!")
+    logger.success(f"successfully ran! For subj: {subj}")
 
 
 if __name__ == "__main__":
     ## load files
     ## bipolar montage them
     ## assemble trial per relationship
+    
     main(sys.argv[1:])

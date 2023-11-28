@@ -59,7 +59,7 @@ def main(argv):
     for l in input_lines:
         prep_dirs(l)
     subj,_,_,_ = get_params(l)
-    logger.add(os.path.join(logdir, f"run_{subj}.log"))
+    logger.add(os.path.join(logdir, f"run_{subj}.log"), enqueue=True)
     pool.map(call_crp, input_lines)
     logger.success(f"Successully Ran on: {subj}")
 if __name__ == "__main__":
