@@ -207,7 +207,7 @@ def get_tr(cross_proj_df):
     m = cross_proj_df.groupby(by='win_size').mean()
     max_val = np.max(m['cross_proj'].values)
 
-    tr_win = m[m.cross_proj == max_val].index[0] #win_size will be index here
+    tr_win = m[m.cross_proj == max_val].index[0] #win_size will be in the index here
     #TODO change back
     tr_ind = time_to_ix(tr_win) #t_ix(tr_win+.15)
     return tr_ind, tr_win

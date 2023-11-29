@@ -34,7 +34,7 @@ def entry_to_df(key, resp_h5):
     df = pd.DataFrame(data=alphas, columns=['alphas']) #TODO check shape
     df['TR'] = TR
     df['resp_reg'] = key.split("_")[-1] #messy but keyshould be 'response_RH14' for example
-    df['alpha_prime'] = alphas/(TR) #TODO remove fs
+    df['alpha_prime'] = alphas/(TR*fs) #TODO remove fs
     return df
 
 
