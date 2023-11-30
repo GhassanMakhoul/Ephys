@@ -62,6 +62,7 @@ def main(argv):
     logger.add(os.path.join(logdir, f"run_{subj}.log"), enqueue=True)
     pool.map(call_crp, input_lines)
     logger.success(f"Successully Ran on: {subj}")
-if __name__ == "__main__":
 
-    main(sys.argv[1:])
+    
+if __name__ == "__main__":
+   main(sys.argv[1:])
