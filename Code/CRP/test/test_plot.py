@@ -17,4 +17,5 @@ import pandas as pd
 class TestPlotPipeline(unittest.TestCase):
 
     def setUp(self):
-        
+        self.plot_file = 'ex_plot.csv'
+        self.plot_df = pd.read_csv('ex_plot.csv')

@@ -34,6 +34,9 @@ from crp import reparam_trial
 
 def plot_channels(spes_df , channel_list,fout=''):
     nrows = len(channel_list)
+    if nrows >10:
+        channel_list = resample_channels(channel_list, 10)
+        nrows = len(channel_list)
     fig, axes = plt.subplots(nrows=nrows, ncols=1,sharex=True)
     for i,ch in enumerate(channel_list):
         ax = axes[i]
@@ -44,6 +47,12 @@ def plot_channels(spes_df , channel_list,fout=''):
         plt.savefig(fout, transparent=True)
     plt.close()
 
+
+def resample_channels(ch_list:list, num:int):
+    n = len(ch_list)
+    inds = np.random.randint(0, n, num)
+    ch_array = np.array(ch_list)
+    return ch_array[inds]
 
 def plot_cross_project(S, fout, ma, stim, contact):
 
@@ -78,22 +87,6 @@ def plot_reparam_agg(trial_reparam_df, fout, proc='RAW'):
     plt.title("Reparamaterization on {proc} voltage")
     plt.savefig(fout,transparent=True)
     plt.close()
-
-
-
-def visualize_pipeline(plot_file:str)->None:
-    """Given a file formatted properly, visualize pipeline will coordinate plotting derivatives and results
-    from the CRP pipeline
-
-    Args:
-        plot_file (str): csv file formatted to load other csv intermediates or h5 files
-    """
-    assert ".csv" in plot_file, "Must be a csv file"
-
-    plot_df = pd.read_csv(plot_file)
-    verify_df(plot_df)
-    plot_df.apply(plot_row)
-
 
 
 def plot_row(row):
@@ -169,3 +162,16 @@ def verify_df(df: pd.DataFrame):
     h5_check =h5_entries.keys != ""
     assert h5_check.all(), "H5 files need keys to plot!"
     
+
+def visualize_pipeline(plot_file:str)->None:
+    """Given a file formatted properly, visualize pipeline will coordinate plotting derivatives and results
+    from the CRP pipeline
+
+    Args:
+        plot_file (str): csv file formatted to load other csv intermediates or h5 files
+    """
+    assert ".csv" in plot_file, "Must be a csv file"
+
+    plot_df = pd.read_csv(plot_file)
+    verify_df(plot_df)
+    plot_df.apply(plot_row)
