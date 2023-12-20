@@ -105,6 +105,15 @@ class TestPlotPipeline(unittest.TestCase):
             num_keys = len(keys)
         plot_df.to_csv("Epat_27_tst_plot.csv",index=False)
         self.assertEqual(plot_df.shape[0],num_keys)
+    
+    def test_filter(self):
+        conditions = {}
+        lg_df = pd.read_csv('/mnt/ernie_main/Ghassan/ephys/data/test/Epat26_plots.csv')
+        logger.info(f"OG SHAPE { lg_df.shape }")
+        conditions['notes'] = {'sig': {'sig:True':10, 'sig:False':5}}
+        plot_df = cr.filter_plot_df(lg_df, conditions)
+
+        self.assertEqual(15, plot_df.shape[0])
 
     def test_plotRaw(self):
         warnings.simplefilter(action='ignore')
@@ -113,11 +122,11 @@ class TestPlotPipeline(unittest.TestCase):
         cr.plot_channels(self.spes_df,chs, self.spes_out_f)
         self.assertTrue(os.path.exists(self.spes_out_f))
 
-    # def test_visualizePipe(self):
-    #     cr.visualize_pipeline(self.plot_file)
-    #     files = self.plot_df.out_fname
-    #     for f in files:
-    #        self.assertTrue(os.path.exists(f))
+    def test_visualizePipe(self):
+        cr.visualize_pipeline(self.plot_file)
+        files = self.plot_df.out_fname
+        for f in files:
+           self.assertTrue(os.path.exists(f))
 
 
         

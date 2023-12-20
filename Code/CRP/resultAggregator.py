@@ -17,9 +17,8 @@ from scipy.io import loadmat
 from scipy.stats import ttest_1samp
 
 #specialty
-from crplot import gen_plot_df
 
-def agg_sesh_df(h5file):
+def agg_sesh_df(h5file, **kwargs):
     """aggregate across stim sesh, each key in for loop is diff stim session
 
     Args:
@@ -28,11 +27,12 @@ def agg_sesh_df(h5file):
     Returns:
         pandas.DataFrame: concatenation of all stim trials
     """
+    sig_test = kwargs['sig_test'] if "sig_test" in kwargs.keys() else False
     sesh_df =[]
     with h5py.File(h5file, 'r') as f:
         for key in f.keys():
- #           if not get_sig(key, h5file, f[key]):
- #               continue
+            if sig_test and not get_sig(key, h5file, f[key]):
+               continue
             df = entry_to_df(key, f[key])
             sesh_df.append(df)
         rej =len(f.keys()) - len(sesh_df)
@@ -131,7 +131,7 @@ def get_sesh_params(folder:str):
     stim_ma = folder.split("/")[-1]
     return stim_ma.split("_")
 
-def agg_responses(subj: str, h5file: str, stim_folders: list, pathout: str):
+def agg_responses(subj: str, h5file: str, stim_folders: list, pathout: str, **kwargs):
     """aggregates all responses across all stim trials in to one
     mega dataframe
 
@@ -146,7 +146,7 @@ def agg_responses(subj: str, h5file: str, stim_folders: list, pathout: str):
 
     for folder in tqdm(stim_folders):
         h5f = os.path.join(folder, h5file)
-        df = agg_sesh_df(h5f)
+        df = agg_sesh_df(h5f, **kwargs)
         stim_reg, ma  = get_sesh_params(folder)
         df['stim_reg'], df['ma'] = stim_reg, ma
         # logger.info(f"\tAgg: {stim_reg} at {ma}")
@@ -175,6 +175,7 @@ def gen_plot_file(subj: str, h5file:str, stim_folders: list, pathout:str, **kwar
         kwargs (dict, optional): Plotting commands options, controls number of channels to plot(rand select
         Whether to detect artifatcts and insignificant files).
     """
+    from crplot import gen_plot_df #avoids circular import
     verify_pathout(pathout)
     plot_dfs = []
     for folder in stim_folders:
@@ -210,7 +211,8 @@ def main(argv):
     
     logger.add(os.path.join(logdir, f'agg_{subj}.log'))
     stim_folders = get_stim_folders(subj, res_folder)
-    agg_responses(subj, inpf, stim_folders, pathout)
+    agg_kwargs = config['agg'] if 'agg' in config.keys() else {}
+    agg_responses(subj, inpf, stim_folders, pathout, **agg_kwargs)
     logger.success(f"SUCCESSFULLY aggregated responses for {subj}!")
 
     if config['plot']['gen_plots']:

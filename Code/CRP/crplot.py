@@ -6,6 +6,7 @@ from pathos.pools import ProcessPool
 #data packages
 import pandas as pd
 import numpy as np
+from numpy.random import randint
 import matplotlib.pyplot as plt
 import seaborn as sns
 
@@ -13,7 +14,7 @@ CONTEXT = 'paper'
 
 #specialty 
 from crp import reparam_trial
-import resultAggregator as agg
+from resultAggregator import get_sig, verify_pathout
 import time
 
 #Debugging
@@ -43,7 +44,7 @@ warnings.filterwarnings('ignore')
         # out_f = os.path.join(pathout, f'figs/{subj}_reparam_NORM_agg_{contact}_stim_{stim}_{ma}.pdf')
         # plot_reparam_agg(norm_reparam_df,out_f, proc='NORMED')
 PLOT_COLS = ["fname","plot_type","key","out_fname","notes"]
-
+PLOT_TYPES = ['reparam-agg', 'cross', 'reparam-trial','raw']
 
 def plot_channels(spes_df, channel_list, out_f=''):
 
@@ -139,6 +140,7 @@ def plot_row(row):
     plot_type = row['plot_type']
     key = row['key']
     out_f = row['out_fname']
+    notes = row['notes']
     start = time.time()
     match plot_type:
         case "raw":
@@ -177,7 +179,6 @@ def get_crossproject(fname, key):
     return S, [ma, stim, contact, tr_win]
 
 
-#@logger.catch
 def verify_df(df: pd.DataFrame):
     """data validation routine that ensures the plot_df is formatted correctly
     example df: 
@@ -207,14 +208,28 @@ def verify_df(df: pd.DataFrame):
     out_fnames_check = out_fnames.str.contains('pdf')
     assert out_fnames_check.all(), "Plots must be saved to .pdf"
 
+    #check that all output files are the same
+    out_path = set(["/".join(f.split('/')[0:-2]) for f in df.out_fname.values])
+    assert len(out_path) == 1, "MULTIPLE OUTPUT PATHS currently not permitted"
     h5_entries = df[df.fname.str.contains(".hdf5")]
     if h5_entries.shape[0] == 0: 
         return #nothing to check!
     h5_check = h5_entries.keys != ""
     assert h5_check, "H5 files need keys to plot!"
-    
 
-def visualize_pipeline(plot_file:str)->None:
+def verify_plot_path(plot_df):
+    """Verify that output folder exists
+    assumes that all figs saved in same place, so only borrows first line
+
+    Args:
+        plot_df (pd.DataFrame): df with all plotting rows formatted as specified in verify df
+    """
+    out_f = plot_df.out_fname.values[0]
+    pathout = "/".join(out_f.split("/")[0:-2])
+    verify_pathout(pathout)
+
+
+def visualize_pipeline(plot_file:str, filter={})->None:
     """Given a file formatted properly, visualize pipeline will coordinate plotting derivatives and results
     from the CRP pipeline
 
@@ -225,13 +240,69 @@ def visualize_pipeline(plot_file:str)->None:
 
     plot_df = pd.read_csv(plot_file)
     verify_df(plot_df)
+
+    verify_plot_path(plot_df)
     # for _, row in plot_df.iterrows():
     #     plot_row(row)
     # plot_df.apply(plot_row, axis=1)
+    if filter != {}:
+        plot_df = filter_plot_df(plot_df, filter)
     rows = [row for _,row in plot_df.iterrows()]
     pool = ProcessPool(nodes=7)
     pool.map(plot_row, rows)
 
+def filter_plot_df(plot_df, conditions):
+    """Filters plot df based on criteria specified by filter dictionary
+
+    Args:
+        plot_df (pd.DataFrame): _description_
+        conditions (dictionary): specifies max number of plots, inclusion and exlucion criteria
+        for significance vs artifact
+    """
+    plot_filt = conditions['plot_type'] if 'plot_type' in conditions.keys() else PLOT_TYPES
+    note_filt = conditions['notes'] if 'notes' in conditions.keys() else ""
+    max_samps = conditions['max_samp'] if 'max_samp' in conditions.keys() else np.inf
+    trial_samp = conditions['num_trial'] if 'num_trial' in conditions.keys() else np.inf
+
+    plot_df = plot_df[plot_df.plot_type.isin(plot_filt)]
+    if note_filt != "":
+        plot_df = filter_notes(plot_df, conditions)
+    #TODO implement max_samps
+    #TODO implement trial samp
+    return plot_df
+    
+def filter_notes(plot_df:pd.DataFrame, conditions:dict)->pd.DataFrame:
+    """Filters on the notes section of the plot df, supports two current
+    conditions: significance and artifact
+
+    Args:
+        plot_df (pd.DataFrame): plot df with format as specified by verify df
+        conditions (dict): dictionary of notes conditions, should have  number of 
+        plots for an expected condition
+
+    Returns:
+        pd.DataFrame: filtered df that satisfies the conditions specified
+    """
+    assert 'notes' in conditions.keys(), "Need rules for notes"
+    notes = conditions['notes']
+    sig = notes['sig'] if 'sig' in notes.keys() else ''
+    artifact = notes['artifact'] if 'artifact' in notes.keys() else ''
+    if sig != "":
+        n_pos, n_neg = sig["sig:True"], sig["sig:False"]
+        sig_vals = np.array([n.split("-")[0] for n in plot_df.notes.values])
+
+        pos_inds= np.where(sig_vals == 'sig:True')[0]
+        rand_inds = randint(0,len(pos_inds),min(n_pos,len(pos_inds)))
+        pos_inds = pos_inds[rand_inds]
+        neg_inds = np.where(sig_vals =='sig:False')[0]
+        rand_inds = randint(0, len(neg_inds),min(len(neg_inds), n_neg))
+        neg_inds = neg_inds[rand_inds]
+        filt_inds = np.append(pos_inds, neg_inds)
+        plot_df = plot_df.iloc[filt_inds,:]
+    if artifact != "":
+        return
+    return plot_df
+    
 
 def gen_plot_df(subj: str, h5file: str, plot_types=['reparam-agg'], **kwargs) -> pd.DataFrame:
     """Helper function that generates a .csv with necessary information for crplot to generate plots
@@ -253,10 +324,10 @@ def gen_plot_df(subj: str, h5file: str, plot_types=['reparam-agg'], **kwargs) ->
         notes = ""
         for key in f.keys():
             if sig_test:
-                sig = agg.get_sig(key, h5file, f[key])
+                sig = get_sig(key, h5file, f[key])
                 notes = f"sig:{sig}-"
             if artifact_test:
-                artifact_test = False #agg.artifact_test
+                artifact_test = False
                 notes = f"{notes}artifact:{artifact_test}" #feel like I should make a JSON for this
             out_fnames = [gen_fname(p, subj, h5file, key,plot_path) for p in plot_types]
             rows = [[h5file, plot_types[i],key,out_f,notes] for i, out_f in enumerate(out_fnames)]
