@@ -7,7 +7,7 @@ import h5py
 import glob
 from tqdm import tqdm
 from loguru import logger
-
+import yaml
 
 
 #data and math packages
@@ -16,6 +16,8 @@ import pandas as pd
 from scipy.io import loadmat
 from scipy.stats import ttest_1samp
 
+#specialty
+from crplot import gen_plot_df
 
 def agg_sesh_df(h5file):
     """aggregate across stim sesh, each key in for loop is diff stim session
@@ -147,20 +149,48 @@ def agg_responses(subj: str, h5file: str, stim_folders: list, pathout: str):
         df = agg_sesh_df(h5f)
         stim_reg, ma  = get_sesh_params(folder)
         df['stim_reg'], df['ma'] = stim_reg, ma
-        logger.info(f"\tAgg: {stim_reg} at {ma}")
+        # logger.info(f"\tAgg: {stim_reg} at {ma}")
         dfs.append(df)
     agg_df = pd.concat(dfs)
     agg_df['subj'] = subj
-    agg_df.to_csv(os.path.join(pathout, f"{subj}_stim.csv"))
+    agg_df.to_csv(os.path.join(pathout, f"{subj}_stim.csv"),index=False)
 
+def verify_pathout(pathout:str)->None:
+    """Ensures that the path exists.
+
+    Args:
+        pathout (str): path to save files to
+    """
+    if not os.path.exists(pathout):
+        os.makedirs(pathout)
+    
+def gen_plot_file(subj: str, h5file:str, stim_folders: list, pathout:str, **kwargs):
+    """Creates a csv with plotting commands that crplot.py can use. kwargs determines whether to 
+    employ artifact detection and significance detection. If artifact/significance detection enabled, a rejection file will be generated.  
+
+    Args:
+        subj (str): Subject's SPES files to aggregate
+        h5file (str): name of CRP file
+        stim_folders (list): folder with stim sesh
+        kwargs (dict, optional): Plotting commands options, controls number of channels to plot(rand select
+        Whether to detect artifatcts and insignificant files).
+    """
+    verify_pathout(pathout)
+    plot_dfs = []
+    for folder in stim_folders:
+        h5f = os.path.join(folder, h5file)
+        df = gen_plot_df(subj, h5f, **kwargs)
+        plot_dfs.append(df)
+        #TODO gen plot max filter
+    plot_dfs= pd.concat(plot_dfs)
+    plot_dfs.to_csv(os.path.join(pathout, f"{subj}_plots.csv"),index=False) 
+    
 
 @logger.catch
 def main(argv):
     subj = ''
-    res_folder = '/mnt/ernie_main/Ghassan/ephys/data'
-    inpf = 'stim_resp_bipole.hdf5'
-    logdir = 'logs/'
-    opts, _ = getopt.getopt(argv,"s:i:p:",["subj=",'inpf=','pathout='])
+    config_f = 'config_agg.yml'
+    opts, _ = getopt.getopt(argv,"s:i:p:c:",["subj=",'inpf=','pathout=','config='])
     for opt, arg in opts:
         if opt in ("-i", 'inpf'):
             inpf = arg
@@ -168,10 +198,28 @@ def main(argv):
             subj = arg
         elif opt in ('-p', '--pathout'):
             pathout = arg
+        elif opt in ("-c", '--config'):
+            config_f = arg
+    with open(config_f, 'r') as f:
+        config =  yaml.safe_load(f)
+
+
+    res_folder = config['general']['res_folder']
+    inpf = config['general']['h5filename']
+    logdir = config['general']['logdir']
+    
     logger.add(os.path.join(logdir, f'agg_{subj}.log'))
     stim_folders = get_stim_folders(subj, res_folder)
     agg_responses(subj, inpf, stim_folders, pathout)
-    logger.success(f"SUCCESSFULLY aggergated responses for {subj}!")
+    logger.success(f"SUCCESSFULLY aggregated responses for {subj}!")
+
+    if config['plot']['gen_plots']:
+        logger.info(f"Generating plot file for {subj}")
+        plot_kwargs = config['plot']   #TODO should I feed yaml directly as kwargs? seems safer to process input first
+        plot_kwargs['plot_path'] = plot_kwargs['plot_path'].replace("SUBJ", subj)
+
+        gen_plot_file(subj, inpf, stim_folders, pathout,**plot_kwargs)
+        logger.success(f"Generated Plot file for {subj}")
 
 
 if __name__ == '__main__':

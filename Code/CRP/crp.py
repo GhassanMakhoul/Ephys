@@ -204,7 +204,8 @@ def get_tr(cross_proj_df):
 def reparam_trial(V_tr, canonical_response, tr_win ):
     n_t, k = V_tr.shape 
     spes_trial = pd.DataFrame(data=V_tr, columns=[f'raw_{i}'for i in range(k)])
-    t = np.linspace(0,tr_win ,n_t)
+    s,e = tr_win
+    t = np.linspace(s, e, n_t)
     spes_trial['time'] = t
 
     alphas, proj, ep = reparam(V_tr,canonical_response)

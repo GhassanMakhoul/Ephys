@@ -2,38 +2,46 @@ import os
 import sys
 import h5py
 import gc
-
+import yaml
 import unittest
+import time
 
 sys.path.append("../")
 import resultAggregator as ragg
 import numpy as np
+import pandas as pd
 #from icecream import ic
 #ic.configureOutput(prefix='ic UnitTest| -> ')
+#Debugging
 import pdb
+from loguru import logger
 
-import pandas as pd
+
 
 class TestResultAgg(unittest.TestCase):
 
     def setUp(self):
-        filepath = '/mnt/ernie_main/Ghassan/ephys/data/Epat26/LA1-LA2_1mA/stim_resp.hdf5'
+        self.h5fname = 'stim_resp_bipole.hdf5'
+        filepath = '/mnt/ernie_main/Ghassan/ephys/data/Epat26/LA1-LA2_1mA/stim_resp_bipole.hdf5'
         self.res_folder = '/mnt/ernie_main/Ghassan/ephys/data/'
         self.subj = 'Epat26'
         self.filepath = filepath
+        self.pathout = '/mnt/ernie_main/Ghassan/ephys/data/test/'
         #TODO modularize test file
         # open h5File
         self.h5 = h5py.File(filepath,'r')
         print(f"Loaded h5 {self.h5}\n")
         self.keys = [k for k in self.h5.keys()]
+        self.startTime = time.time()
 
     def test_getSig(self):
-        key = 'response_LAM10'
+        key = 'response_LAM9 - LAM10'
         sig = ragg.get_sig(key, self.filepath, self.h5[key])
-        
         self.assertIsInstance(sig, np.bool_) #TODO make stronger test
 
     def tearDown(self):
+        t = time.time() - self.startTime
+        logger.info("Test %s: took %.3f s to run" % (self.id(), t))
         self.h5.close()
         print("Closed h5")
         print("Garbage Collecting")
@@ -76,12 +84,24 @@ class TestResultAgg(unittest.TestCase):
         self.assertTrue(np.all(ev < 1)) # explained var needs to be less than 1
         self.assertFalse(np.all(np.isnan(ev))) # no NaN values allowed!
     
+    def test_genplot(self):
+        with open("../config_agg.yml", 'r') as f:
+            config =  yaml.safe_load(f)
+        config['plot']['plot_path'] =  config['plot']['plot_path'].replace("SUBJ", self.subj)
+        stim_folders = ragg.get_stim_folders(self.subj, self.res_folder)
+        plot_kwargs = config['plot']
+        ragg.gen_plot_file(self.subj,self.h5fname,stim_folders,self.pathout,**plot_kwargs )
+        plot_file = os.path.join(self.pathout,self.subj+ "_plots.csv")
+        self.assertTrue(os.path.exists(plot_file))
+        # run gen plot file
+        # check for notes ? entries ?
+    
     def test_aggSesh(self):
         print("Test agg sesh")
         df = ragg.agg_sesh_df(self.filepath)
         self.assertTrue(len(self.keys) >= len(set(df['resp_reg'].values)))
         
-        
+    
     
     # def test_aggResponses(self):
     #     """run the aggregation once as a sanity check, should surface any errors
@@ -95,8 +115,14 @@ class TestResultAgg(unittest.TestCase):
         
     def test_main(self):
        print("testing main method")
-       ragg.main(['-s', 'Epat26', '-p', '/mnt/ernie_main/Ghassan/ephys/test/'])
+       config = 'config_tst_agg.yml'
+       pathout = '/mnt/ernie_main/Ghassan/ephys/data/test/'
+       ragg.main(['-s', 'Epat26', '-p', pathout, '-c', config])
+       res_file = os.path.join(pathout,self.subj + "_stim.csv")
+       self.assertTrue(os.path.exists(res_file))
 
 
 if __name__ == '__main__':
+    logger.add('logs/tst_res_agg.log', level=20)
+    logger.info("Running Result aggregator")
     unittest.main()
