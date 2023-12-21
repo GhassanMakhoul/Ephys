@@ -9,6 +9,7 @@ import numpy as np
 from numpy.random import randint
 import matplotlib.pyplot as plt
 import seaborn as sns
+from scipy.stats import iqr
 
 CONTEXT = 'paper'
 
@@ -128,20 +129,58 @@ def plot_reparam_trials(trial_reparam_df, k,out_f, notes=""):
         plt.savefig(out_f,transparent=True)
         plt.close()
 
+# def plot_reparam_agg(trial_reparam_df, out_f,resp,stim, notes=""):
+#     my_colors = ['r']*10+['g']*10+['k']*10 +['y'] #TODO fix magic number
+#     title = f"Reparam {resp} response, stim: {stim}"
+#     if notes != "":
+#         title = title + f" {notes}"
+#     with sns.plotting_context(CONTEXT):
+#         plt.figure(figsize=(10, 12)) 
+#         ax = trial_reparam_df.plot(kind='line',x='time',  color=my_colors)
+#         plt.legend( bbox_to_anchor=[1.15, 0.5], loc='center')
+#         plt.title(title)
+#         plt.savefig(out_f,transparent=True)
+#         plt.close()
+
 def plot_reparam_agg(trial_reparam_df, out_f,resp,stim, notes=""):
-    my_colors = ['r']*10+['g']*10+['k']*10 +['y'] #TODO fix magic number
+    def _rescale_crp(df):
+        raw = df.iloc[:,df.columns.str.contains('raw')]
+        df['crp'] = df['crp'] * iqr(raw)*5
+        return df
+    my_colors = ['r']*10+['g']*10 +['k'] #TODO fix magic number
     title = f"Reparam {resp} response, stim: {stim}"
+
     if notes != "":
         title = title + f" {notes}"
+
+    df = _rescale_crp(trial_reparam_df)
+    raw_df = melt_reparam(trial_reparam_df, 'raw')
+    trial_reparam_df = df.iloc[:, ~df.columns.str.contains('raw')] #get rid of raw
+
     with sns.plotting_context(CONTEXT):
-        plt. figure(figsize=(10, 12)) 
-        ax = trial_reparam_df.plot(kind='line',x='time',  color=my_colors)
+        plt.figure(figsize=(10, 12)) 
+        ax = sns.lineplot(data=raw_df, x='time',y='raw')
+        _ = trial_reparam_df.plot(kind='line',x='time',  color=my_colors, ax=ax)
         plt.legend( bbox_to_anchor=[1.15, 0.5], loc='center')
         plt.title(title)
         plt.savefig(out_f,transparent=True)
         plt.close()
 
+def melt_reparam(df,stack_col):
+    """Pivotes a reparameterized dataframe based on pivot_col
+    This method assumes formatting and conventions of the reparam_df
 
+    Args:
+        df (pd.DataFrame): reparam_df
+        pivot_col (str): column to reparameterize on
+    """
+    inds = df.columns.str.contains(stack_col)
+    cols = df.columns[inds]
+    df = df.melt(id_vars=['time'], value_vars=cols, value_name=stack_col)
+    return df
+    #No numbers in col
+
+    
 
 def plot_row(row):
 
