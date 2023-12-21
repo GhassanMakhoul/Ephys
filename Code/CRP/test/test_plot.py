@@ -112,8 +112,8 @@ class TestPlotPipeline(unittest.TestCase):
         logger.info(f"OG SHAPE { lg_df.shape }")
         conditions['notes'] = {'sig': {'sig:True':10, 'sig:False':5}}
         plot_df = cr.filter_plot_df(lg_df, conditions)
-
-        self.assertEqual(15, plot_df.shape[0])
+        num_filt = 15*len(set(lg_df.plot_type))
+        self.assertEqual(num_filt, plot_df.shape[0])
 
     def test_plotRaw(self):
         warnings.simplefilter(action='ignore')

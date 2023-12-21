@@ -6,7 +6,7 @@ agg:
   sig_test : false
 plot:
   gen_plots : true
-  plot_path : "/mnt/ernie_main/Ghassan/ephy/data/SUBJ/fig/"
+  plot_path : "/mnt/ernie_main/Ghassan/ephys/data/SUBJ/fig/"
   sig_test : true
   artifact_test : false
   max_entry : 50
