@@ -114,7 +114,7 @@ def assemble_trial(subj, stim_pair, ma, folder='CCEP_single_pulses_bipole'):
         file = f'{subj}/{subj}_{folder}/{subj}_{stim_pair}_{ma}_pulse_{pulse}.mat' #TODO move 'dirty work' (I/O hardcoding) to one method
         file_path = os.path.join(DATA_FOLDER, file)
         if not os.path.isfile(file_path):
-            print(f"File not exist:  {file}")
+            logger.warning(f"File not exist:  {file}")
             continue #check to see if file exists then skip if not, # would be better if just generated all pulse files directly
 
         spes_trial = loadmat(file_path)
@@ -164,7 +164,7 @@ def flatten_df(og_df, cols, flat_name, const_col):
     flat_df = pd.DataFrame(data=flat_data,columns=['voltage'])
     flat_cols = []
     for c in cols:
-        flat_cols = flat_cols + [c]*n
+        flat_cols = flat_cols + [c]*n #TODO use pd.stack
     flat_df[flat_name] = flat_cols
 
     flat_df[const_col] = np.tile(og_df[const_col],len(cols))
@@ -181,7 +181,9 @@ def reparam(V_data,crp):
     return alphas, proj, ep
 
 def lin_PCA(V):
-    """returns the result of lin kernal PCA"""
+    """returns the result of lin kernal PCA
+    V is shape time x N_trials. For most cases, |time| >> |N_trials|
+    thus the kernel trick is necessary to generate an eigenvector in the time domain                                                """
     [S2,eigen_vectors] = np.linalg.eig(V.T@V,)
     S = np.sqrt(S2)
     sort_inds = np.argsort(S)[::-1]

@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 from scipy.io import loadmat
 from scipy.stats import ttest_1samp
+from scipy.signal import find_peaks
 
 #specialty
 
@@ -61,6 +62,33 @@ def get_explained_var(pulse_trial) -> np.number:
     return ev.diagonal()
 
 
+def get_time_to_peak(curve: np.array, fs: int, n_peaks =1) -> list[float]:
+    """Using a peakfinding approach, this returns the index of the peak
+    We are implementing this to characterize delays in response timing.
+    The matsumoto2017 review on SPES posits that delays in peak response 
+    characterize the SOZ
+
+    Args:
+        curve (np.array): any SPES curve, could be the CRP, could be an average, or a single 
+        pulse, but needs to be an np.array
+        
+        fs (int): sampling rate - samples/second
+        n_peaks (int) : number of peaks to examine. Defaults to 1.
+
+        #TODO - implement a windowing period may help peakfinder with known N1, N2
+        #TODO - clarify if we want to only find positive deflections. Given the nature of 
+        non cortical SPES we may have some flipped responses.
+
+
+    Returns:
+        list[float]: list of times correlating to number of peaks
+    """
+    threshold =  .01 * fs #10 ms = .010s * fs samp/s = n_samps 
+    peaks = find_peaks(curve, )
+    
+
+
+
 
 def get_sig(key:str, file_path:str, resp_h5:h5py.File) -> bool:
     """Computes significance using cross projection and returns TRUE/FALSE 
@@ -81,13 +109,99 @@ def get_sig(key:str, file_path:str, resp_h5:h5py.File) -> bool:
     S_tr = S[S.win_size ==TR]
     stats_inds = get_stats_inds(S_tr)
     vals = S_tr.iloc[stats_inds].cross_proj
-    stats = ttest_1samp(vals, 0)
+    stats = ttest_1samp(vals, 0,alternative="greater")
     return stats[1] < .05
 
 def get_stats_inds(S):
     N,_ = S.shape
-    inds = np.arange(0,N,2)
+    n = np.sqrt(N)
+    inds = np.arange(0,N-n,2)
+    if n %2 ==1:
+        inds = tri_checkerboard(n)
     return inds #TODO double check this, may be diff with flattened implementation
+
+def tri_checkerboard(n):
+    """Returns every other index of the upper and lower triangular indices. This satisfies 
+    2 properties of the stats sample for cross projection:
+        1. Half of the samples reflect normalized trial projected onto un-norm
+        2. No double counting of normed trials
+        To satisfy this, the upper and lower triangular indices of the matrix need to
+        to be masked with a checkerboard pattern. The checkerboard pattern is offset
+        differntly for the upper and lower triangular matrices 
+
+
+    Args:
+        n (_type_): _description_
+    """
+    n = int(n)
+    raw_inds = np.arange(0, n**2).reshape(n,n)
+
+    u_inds = tri_mask(n)
+
+    checker_upper = checkerboard((n,n), 1)
+    checker_inds = checker_upper[u_inds]
+    try:
+        upper_samps = raw_inds[u_inds][checker_inds]
+    except IndexError:
+        import pdb
+        pdb.set_trace()
+    
+
+    l_inds = tri_mask(n, side='lower')
+    checker_lower = checkerboard((n,n), 0)
+    checker_inds = checker_lower[l_inds]
+    lower_samps = raw_inds[l_inds][checker_inds]
+    return np.append(upper_samps, lower_samps)
+
+
+def checkerboard(shape, offset):
+    """Creates a checkerboard boolean indices
+
+    Args:
+        shape (int): shape of one dimenstion
+        offset (int): 0 or 1 if 0 then 0,0 will be true
+
+    Returns:
+        np.ndarray : boolean matrix
+
+    example:
+    in : checkerboard((9,9), 0)
+    
+    out: array([[ True, False,  True, False,  True, False,  True, False,  True],
+       [False,  True, False,  True, False,  True, False,  True, False],
+       [ True, False,  True, False,  True, False,  True, False,  True],
+       [False,  True, False,  True, False,  True, False,  True, False],
+       [ True, False,  True, False,  True, False,  True, False,  True],
+       [False,  True, False,  True, False,  True, False,  True, False],
+       [ True, False,  True, False,  True, False,  True, False,  True],
+       [False,  True, False,  True, False,  True, False,  True, False],
+       [ True, False,  True, False,  True, False,  True, False,  True]])
+
+    """
+    try:
+        return np.indices(shape).sum(axis=0) %2 == offset
+    except TypeError:
+        logger.warning("INDS SHOULD BE INTS")
+        shape = ( int(shape[0]), int(shape[1]) )
+        return np.indices(shape).sum(axis=0) %2 == offset
+
+def tri_mask(n, side='upper'):
+    """n should be the shape of the matrix
+
+    Args:
+        n (int): shape of
+        side (str, optional): _description_. Defaults to 'upper'.
+
+    Returns:
+        np.ndarray: boolean array of upper triangular
+    """
+    r = np.arange(n)
+    if side == 'upper':
+        mask = r[:, None] > r
+    else:
+        mask = r[:, None] < r
+    return mask
+
 
 def entry_to_df(key, resp_h5):
     """assembles df with 

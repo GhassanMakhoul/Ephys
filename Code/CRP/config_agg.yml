@@ -3,7 +3,7 @@ general:
   h5filename : 'stim_resp_bipole.hdf5' #general hdf5 name that should hold for most runs
   logdir : 'logs/'
 agg:
-  sig_test : false
+  sig_test : true
 plot:
   gen_plots : true
   plot_path : "/mnt/ernie_main/Ghassan/ephys/data/SUBJ/fig/"

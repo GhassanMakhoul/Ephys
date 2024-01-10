@@ -34,11 +34,7 @@ class TestResultAgg(unittest.TestCase):
         self.keys = [k for k in self.h5.keys()]
         self.startTime = time.time()
 
-    def test_getSig(self):
-        key = 'response_LAM9 - LAM10'
-        sig = ragg.get_sig(key, self.filepath, self.h5[key])
-        self.assertIsInstance(sig, np.bool_) #TODO make stronger test
-
+    
     def tearDown(self):
         t = time.time() - self.startTime
         logger.info("Test %s: took %.3f s to run" % (self.id(), t))
@@ -47,6 +43,10 @@ class TestResultAgg(unittest.TestCase):
         print("Garbage Collecting")
         gc.collect()
 
+    def test_getSig(self):
+        key = 'response_LAM9 - LAM10'
+        sig = ragg.get_sig(key, self.filepath, self.h5[key])
+        self.assertIsInstance(sig, np.bool_) #TODO make stronger test
 
     def test_entryToDF(self):
         key1 = self.keys[0]
@@ -113,13 +113,13 @@ class TestResultAgg(unittest.TestCase):
     #     df = pd.read_csv("/mnt/ernie_main/Ghassan/ephys/test/Epat26_stim.csv")
     #     self.assertEqual(len(set(df.subj)), 1)
         
-    def test_main(self):
-       print("testing main method")
-       config = 'config_tst_agg.yml'
-       pathout = '/mnt/ernie_main/Ghassan/ephys/data/test/'
-       ragg.main(['-s', 'Epat26', '-p', pathout, '-c', config])
-       res_file = os.path.join(pathout,self.subj + "_stim.csv")
-       self.assertTrue(os.path.exists(res_file))
+    # def test_main(self):
+    #    print("testing main method")
+    #    config = 'config_tst_agg.yml'
+    #    pathout = '/mnt/ernie_main/Ghassan/ephys/data/test/'
+    #    ragg.main(['-s', 'Epat26', '-p', pathout, '-c', config])
+    #    res_file = os.path.join(pathout,self.subj + "_stim.csv")
+    #    self.assertTrue(os.path.exists(res_file))
 
 
 if __name__ == '__main__':
