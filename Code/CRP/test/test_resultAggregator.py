@@ -57,6 +57,7 @@ class TestResultAgg(unittest.TestCase):
         self.assertIn('alphas', df.columns)
         self.assertIn('resp_reg', df.columns)
         self.assertIn('explained_variance', df.columns)
+        self.assertIn("t_peak_0", df.columns)
     
     def test_getStimFolders(self):
         folders = ragg.get_stim_folders(self.subj, self.res_folder)
@@ -103,15 +104,18 @@ class TestResultAgg(unittest.TestCase):
         
     
     
-    # def test_aggResponses(self):
-    #     """run the aggregation once as a sanity check, should surface any errors
-    #     """
-    #     print("Test Agg Resp")
-    #     folders = ragg.get_stim_folders(self.subj, self.res_folder)
-    #     ragg.agg_responses(self.subj, self.filepath, \
-    #                   folders, '/mnt/ernie_main/Ghassan/ephys/test/')
-    #     df = pd.read_csv("/mnt/ernie_main/Ghassan/ephys/test/Epat26_stim.csv")
-    #     self.assertEqual(len(set(df.subj)), 1)
+    def test_aggResponses(self):
+        """run the aggregation once as a sanity check, should surface any errors
+        """
+        with open('../config_agg.yml', 'r') as f:
+            config =  yaml.safe_load(f)
+        agg_kwargs = config['agg'] if 'agg' in config.keys() else {}
+        print("Test Agg Resp")
+        folders = ragg.get_stim_folders(self.subj, self.res_folder)
+        ragg.agg_responses(self.subj, self.filepath, \
+                      folders, '/mnt/ernie_main/Ghassan/ephys/test/')
+        df = pd.read_csv("/mnt/ernie_main/Ghassan/ephys/test/Epat26_stim.csv", **agg_kwargs)
+        self.assertEqual(len(set(df.subj)), 1)
         
     # def test_main(self):
     #    print("testing main method")

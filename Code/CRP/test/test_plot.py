@@ -2,7 +2,7 @@ import os
 import sys
 import h5py
 import gc
-from functools import partial
+import yaml
 
 import unittest
 import time
@@ -36,10 +36,10 @@ class TestPlotPipeline(unittest.TestCase):
         self.cross_f = crossplot_df.fname.values[0]
         self.cross_k = crossplot_df.key.values[0]
         self.cross_out_f = crossplot_df.out_fname.values[0]
-
-        df = plot_df[plot_df.plot_type == 'raw']
-        self.spes_df = pd.read_csv(df.fname.values[0])
-        self.spes_out_f = df.out_fname.values[0]
+        # pdb.set_trace()
+        # df = plot_df[plot_df.plot_type == 'raw']
+        # self.spes_df = pd.read_csv(df.fname.values[0])
+        # self.spes_out_f = df.out_fname.values[0]
 
         reparam_df = plot_df[plot_df.plot_type =='reparam-agg']
         self.reparam_f = reparam_df.fname.values[0]
@@ -88,8 +88,11 @@ class TestPlotPipeline(unittest.TestCase):
         stim = f.split("/")[-2]
         out_f = self.reparam_out_f
         reparam_df = cr.get_reparam(f,k)
-        cr.plot_reparam_agg(reparam_df,out_f,resp,stim)
+        
+        peak_times = cr.get_peak_times(f,k,n_peaks=2)
+        cr.plot_reparam_agg(reparam_df,out_f,resp,stim,peak_times=peak_times)
         self.assertTrue(os.path.exists(out_f))
+        print(f"Reparam-agg test saved to {out_f}")
     
     # def test_resampleChannels(self):
     #     chs = cr.gen_plot_channels(self.spes_df.columns, 10)
@@ -122,11 +125,15 @@ class TestPlotPipeline(unittest.TestCase):
     # #     cr.plot_channels(self.spes_df,chs, self.spes_out_f)
     # #     self.assertTrue(os.path.exists(self.spes_out_f))
 
-    # # def test_visualizePipe(self):
-    # #     cr.visualize_pipeline(self.plot_file)
-    # #     files = self.plot_df.out_fname
-    # #     for f in files:
-    # #        self.assertTrue(os.path.exists(f))
+    def test_visualizePipe(self):
+        with open('../config_plot.yml', 'r') as f:
+            config = yaml.safe_load(f)
+            plot_opts = config['plot_options']
+        print(plot_opts)
+        cr.visualize_pipeline(self.plot_file,**plot_opts)
+        files = self.plot_df.out_fname
+        for f in files:
+           self.assertTrue(os.path.exists(f))
 
 
         

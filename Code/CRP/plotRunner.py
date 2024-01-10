@@ -32,7 +32,8 @@ def main(argv):
     with open(config_f, 'r') as f:
         config =  yaml.safe_load(f)
         filt = config['filter']
-    crplot.visualize_pipeline(inpf, filt)
+        plot_opts = config['plot_options']
+    crplot.visualize_pipeline(inpf, filt, **plot_opts)
 
 if __name__ == '__main__':
     main(sys.argv[1:])

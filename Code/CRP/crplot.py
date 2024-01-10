@@ -15,8 +15,9 @@ CONTEXT = 'paper'
 
 #specialty 
 from crp import reparam_trial
-from resultAggregator import get_sig, verify_pathout
+from resultAggregator import get_sig, verify_pathout, get_timing
 import time
+from functools import partial
 
 #Debugging
 from loguru import logger
@@ -142,7 +143,7 @@ def plot_reparam_trials(trial_reparam_df, k,out_f, notes=""):
 #         plt.savefig(out_f,transparent=True)
 #         plt.close()
 
-def plot_reparam_agg(trial_reparam_df, out_f,resp,stim, notes=""):
+def plot_reparam_agg(trial_reparam_df, out_f,resp,stim, peak_times=[], notes=""):
     def _rescale_crp(df):
         raw = df.iloc[:,df.columns.str.contains('raw')]
         df['crp'] = df['crp'] * iqr(raw)*5
@@ -156,16 +157,18 @@ def plot_reparam_agg(trial_reparam_df, out_f,resp,stim, notes=""):
     df = _rescale_crp(trial_reparam_df)
     raw_df = melt_reparam(trial_reparam_df, 'raw')
     trial_reparam_df = df.iloc[:, ~df.columns.str.contains('raw')] #get rid of raw
-
     with sns.plotting_context(CONTEXT):
         plt.figure(figsize=(10, 12)) 
         ax = sns.lineplot(data=raw_df, x='time',y='raw')
         _ = trial_reparam_df.plot(kind='line',x='time',  color=my_colors, ax=ax)
+        for t in peak_times:
+            plt.axvline(x=t,ymin=raw_df.raw.min(),ymax=raw_df.raw.max())
         plt.legend( bbox_to_anchor=[1.15, 0.5], loc='center')
         plt.title(title)
         plt.savefig(out_f,transparent=True)
         plt.close()
 
+#This plotting function is a monster, I'm 3 deep!
 def melt_reparam(df,stack_col):
     """Pivotes a reparameterized dataframe based on pivot_col
     This method assumes formatting and conventions of the reparam_df
@@ -182,7 +185,7 @@ def melt_reparam(df,stack_col):
 
     
 
-def plot_row(row):
+def plot_row(row, **kwargs):
 
     fname = row['fname']
     plot_type = row['plot_type']
@@ -199,10 +202,7 @@ def plot_row(row):
                 logger.warning(f"Weirdness on this file {fname}")
                 pass
         case "reparam-agg":
-            reparam_df = get_reparam(fname, key)
-            resp = key.split("_")[-1]
-            stim = fname.split("/")[-2]
-            plot_reparam_agg(reparam_df,out_f,resp, stim,notes=notes)
+            handle_reparam_agg(fname,key, out_f, notes, **kwargs)
         case "cross":
             S, args = get_crossproject(fname, key)
             plot_cross_project(S, out_f, *args,notes=notes)
@@ -210,6 +210,20 @@ def plot_row(row):
     t = "%.3f" % t
     logger.info(f"Plotting {plot_type} Took :{t}s")
 
+def handle_reparam_agg(fname,key, out_f, notes, **kwargs):
+    n_peaks = kwargs['n_peaks'] if 'n_peaks' in kwargs.keys() else 1
+    reparam_df = get_reparam(fname, key)
+    resp = key.split("_")[-1]
+    stim = fname.split("/")[-2]
+    peak_times = get_peak_times(fname,key, n_peaks=n_peaks)
+    print(f"Detected peak times: {peak_times} with {n_peaks} peaks specified")
+    plot_reparam_agg(reparam_df, out_f,resp, stim,peak_times=peak_times, notes=notes)
+
+def get_peak_times(fname, key,n_peaks=1):
+    with h5py.File(fname, 'r') as h5:
+        trial = h5[key]
+        peak_times = get_timing(trial,n_peaks=n_peaks)
+    return peak_times
 
 def get_reparam(fname, key):
     with h5py.File(fname, 'r') as h5:
@@ -285,7 +299,7 @@ def verify_plot_path(plot_df):
     verify_pathout(pathout)
 
 
-def visualize_pipeline(plot_file:str, filt={})->None:
+def visualize_pipeline(plot_file:str, filt={}, **kwargs)->None:
     """Given a file formatted properly, visualize pipeline will coordinate plotting derivatives and results
     from the CRP pipeline
 
@@ -304,8 +318,9 @@ def visualize_pipeline(plot_file:str, filt={})->None:
     if filt != {}:
         plot_df = filter_plot_df(plot_df, filt)
     rows = [row for _,row in plot_df.iterrows()]
+    plot_partial = partial(plot_row, **kwargs)
     pool = ProcessPool(nodes=7)
-    pool.map(plot_row, rows)
+    pool.map(plot_partial, rows)
 
 def filter_plot_df(plot_df, conditions):
     """Filters plot df based on criteria specified by filter dictionary
@@ -394,7 +409,7 @@ def gen_plot_df(subj: str, h5file: str, plot_types=['reparam-agg'], **kwargs) ->
                 notes = f"sig:{sig}-"
             if artifact_test:
                 artifact_test = False
-                notes = f"{notes}artifact:{artifact_test}" #feel like I should make a JSON for this
+                notes = f"{notes}artifact:{artifact_test}-" #feel like I should make a JSON for this
             out_fnames = [gen_fname(p, subj, h5file, key,plot_path) for p in plot_types]
             rows = [[h5file, plot_types[i],key,out_f,notes] for i, out_f in enumerate(out_fnames)]
             df = pd.DataFrame(columns=PLOT_COLS, data=rows)

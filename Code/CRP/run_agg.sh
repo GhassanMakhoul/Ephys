@@ -1,4 +1,4 @@
-#!/bin/bash
+# #!/bin/bash
 # python resultAggregator.py -s 'Epat27' -p '/mnt/ernie_main/Ghassan/ephys/data/Epat27'
 # python resultAggregator.py -s 'Epat26' -p '/mnt/ernie_main/Ghassan/ephys/data/Epat26'
 # python resultAggregator.py -s 'Epat30' -p '/mnt/ernie_main/Ghassan/ephys/data/Epat30'
@@ -11,9 +11,9 @@
 # python resultAggregator.py -s 'Spat30' -p '/mnt/ernie_main/Ghassan/ephys/data/Spat30'
 # python resultAggregator.py -s 'Spat31' -p '/mnt/ernie_main/Ghassan/ephys/data/Epat31'
 # python resultAggregator.py -s 'Spat34' -p '/mnt/ernie_main/Ghassan/ephys/data/Spat34'
-# python resultAggregator.py -s 'Spat36' -p '/mnt/ernie_main/Ghassan/ephys/data/Spat36'
-# python resultAggregator.py -s 'Spat37' -p '/mnt/ernie_main/Ghassan/ephys/data/Spat37'
-# python resultAggregator.py -s 'Spat52' -p '/mnt/ernie_main/Ghassan/ephys/data/Spat52'
+python resultAggregator.py -s 'Spat36' -p '/mnt/ernie_main/Ghassan/ephys/data/Spat36'
+python resultAggregator.py -s 'Spat37' -p '/mnt/ernie_main/Ghassan/ephys/data/Spat37'
+python resultAggregator.py -s 'Spat52' -p '/mnt/ernie_main/Ghassan/ephys/data/Spat52'
 
 python resultAggregator.py -s Epat34 -p '/mnt/ernie_main/Ghassan/ephys/data/Epat34'
 echo done with Epat34 
