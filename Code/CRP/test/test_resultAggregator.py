@@ -113,8 +113,8 @@ class TestResultAgg(unittest.TestCase):
         print("Test Agg Resp")
         folders = ragg.get_stim_folders(self.subj, self.res_folder)
         ragg.agg_responses(self.subj, self.filepath, \
-                      folders, '/mnt/ernie_main/Ghassan/ephys/test/')
-        df = pd.read_csv("/mnt/ernie_main/Ghassan/ephys/test/Epat26_stim.csv", **agg_kwargs)
+                      folders, '/mnt/ernie_main/Ghassan/ephys/test/',**agg_kwargs)
+        df = pd.read_csv("/mnt/ernie_main/Ghassan/ephys/test/Epat26_stim.csv")
         self.assertEqual(len(set(df.subj)), 1)
         
     # def test_main(self):

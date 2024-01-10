@@ -34,7 +34,7 @@ def agg_sesh_df(h5file, **kwargs):
         for key in f.keys():
             if sig_test and not get_sig(key, h5file, f[key]):
                continue
-            df = entry_to_df(key, f[key])
+            df = entry_to_df(key, f[key],**kwargs)
             sesh_df.append(df)
         rej =len(f.keys()) - len(sesh_df)
         if rej >0 :
@@ -62,7 +62,7 @@ def get_explained_var(pulse_trial) -> np.number:
     return ev.diagonal()
 
 
-def get_time_to_peak(curve: np.array, fs: int, n_peaks =1) -> list[float]:
+def get_times_to_peak(curve: np.array, fs: int, n_peaks =1) -> list[float]:
     """Using a peakfinding approach, this returns the index of the peak
     We are implementing this to characterize delays in response timing.
     The matsumoto2017 review on SPES posits that delays in peak response 
@@ -84,14 +84,27 @@ def get_time_to_peak(curve: np.array, fs: int, n_peaks =1) -> list[float]:
         list[float]: list of times correlating to number of peaks
     """
     dists =  .01 * fs #10 ms = .010s * fs samp/s = n_samps 
-    peak_inds, _ = find_peaks(curve,distance=dist )
-    if n_peaks < len(peaks):
-        diff = n_peaks - len(peaks_inds)
+    peak_inds, _ = find_peaks(curve,distance=dists)
+    if n_peaks < len(peak_inds):
+        diff = n_peaks - len(peak_inds)
         np.append(peak_inds, [np.nan]*diff)
-     peak_inds = [0:n_peaks]
-     return [ind/fs for ind in peak_inds]
+    peak_inds = peak_inds[0:n_peaks]
+    return [ind/fs for ind in peak_inds]
 
+def get_timing(resp_h5,n_peaks=1):
+    fs = resp_h5.attrs['fs']
+    trial_dim = np.argmin(resp_h5['projections'].shape)
+    curve = np.mean(resp_h5['projections'],axis=trial_dim)
+    return get_times_to_peak(curve, fs, n_peaks=n_peaks)
 
+def add_timing(df, resp_h5, **kwargs):
+    """Return dataframe with columns for timing of peaks"""
+
+    n_peaks = kwargs['n_peaks'] if 'n_peaks' in kwargs.keys() else 1
+    peak_times = get_timing(resp_h5,n_peaks=n_peaks)
+    for i,t in enumerate(peak_times):
+        df[f't_peak_{i}'] = t
+    return df
 
 def get_sig(key:str, file_path:str, resp_h5:h5py.File) -> bool:
     """Computes significance using cross projection and returns TRUE/FALSE 
@@ -206,7 +219,7 @@ def tri_mask(n, side='upper'):
     return mask
 
 
-def entry_to_df(key, resp_h5):
+def entry_to_df(key, resp_h5, **kwargs):
     """assembles df with 
     1. resp_region
     2. alphas
@@ -222,7 +235,7 @@ def entry_to_df(key, resp_h5):
     df['alpha_prime'] = alphas/(TR*fs) #TODO check on fs
     df['explained_variance'] = get_explained_var(resp_h5)
 
-    df = get_timing()
+    df = add_timing(df, resp_h5,**kwargs)
     return df
 
 
