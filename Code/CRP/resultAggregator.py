@@ -83,10 +83,13 @@ def get_time_to_peak(curve: np.array, fs: int, n_peaks =1) -> list[float]:
     Returns:
         list[float]: list of times correlating to number of peaks
     """
-    threshold =  .01 * fs #10 ms = .010s * fs samp/s = n_samps 
-    peaks = find_peaks(curve, )
-    
-
+    dists =  .01 * fs #10 ms = .010s * fs samp/s = n_samps 
+    peak_inds, _ = find_peaks(curve,distance=dist )
+    if n_peaks < len(peaks):
+        diff = n_peaks - len(peaks_inds)
+        np.append(peak_inds, [np.nan]*diff)
+     peak_inds = [0:n_peaks]
+     return [ind/fs for ind in peak_inds]
 
 
 
@@ -218,6 +221,8 @@ def entry_to_df(key, resp_h5):
     df['resp_reg'] = key.split("_")[-1] #messy but keyshould be 'response_RH14' for example
     df['alpha_prime'] = alphas/(TR*fs) #TODO check on fs
     df['explained_variance'] = get_explained_var(resp_h5)
+
+    df = get_timing()
     return df
 
 
