@@ -83,7 +83,7 @@ def get_times_to_peak(curve: np.array, fs: int, n_peaks =1) -> list[float]:
     Returns:
         list[float]: list of times correlating to number of peaks
     """
-    dists =  .01 * fs #10 ms = .010s * fs samp/s = n_samps 
+    dists =  .05 * fs #10 ms = .010s * fs samp/s = n_samps 
     peak_inds, _ = find_peaks(curve,distance=dists)
     if n_peaks < len(peak_inds):
         diff = n_peaks - len(peak_inds)
