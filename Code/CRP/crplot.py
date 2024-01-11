@@ -72,7 +72,7 @@ def plot_channels(spes_df, channel_list, out_f='',notes=''):
         fig.suptitle(title)
         plt.yticks(rotation=40)
         if out_f != "":
-            plt.savefig(out_f, transparent=True)
+            plt.savefig(out_f, transparent=True, bbox_inches='tight')
     plt.close()
 
 
@@ -106,7 +106,7 @@ def plot_cross_project(S, out_f, ma, stim, contact, tr_win, notes=''):
         ax.axvspan(tr_win[0], tr_win[1], color='orange', alpha=0.5)
         plt.title(title)
         plt.legend( bbox_to_anchor=[0.15, 0.5], loc='right')
-        plt.savefig(out_f, transparent=True)
+        plt.savefig(out_f, transparent=True, bbox_inches='tight')
         plt.close()
 
 
@@ -127,7 +127,7 @@ def plot_reparam_trials(trial_reparam_df, k,out_f, notes=""):
             ax.get_legend()
         plt.legend( bbox_to_anchor=[1.15, 0.5], loc='center', labels=['Raw','Proj','Epsilon'])
         fig.suptitle(title)
-        plt.savefig(out_f,transparent=True)
+        plt.savefig(out_f,transparent=True, bbox_inches='tight')
         plt.close()
 
 # def plot_reparam_agg(trial_reparam_df, out_f,resp,stim, notes=""):
@@ -165,7 +165,7 @@ def plot_reparam_agg(trial_reparam_df, out_f,resp,stim, peak_times=[], notes="")
             plt.axvline(x=t,ymin=raw_df.raw.min(),ymax=raw_df.raw.max())
         plt.legend( bbox_to_anchor=[1.15, 0.5], loc='center')
         plt.title(title)
-        plt.savefig(out_f,transparent=True)
+        plt.savefig(out_f,transparent=True, bbox_inches='tight')
         plt.close()
 
 #This plotting function is a monster, I'm 3 deep!
