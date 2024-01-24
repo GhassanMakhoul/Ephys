@@ -7,36 +7,9 @@ import glob
 from collections import defaultdict
 from scipy.stats import ttest_ind, f_oneway
 
-def split_bipole(bip_df: pd.DataFrame):
-    """splits the bipole column of a bipole df
-    duplicates rows
-
-    """
-    assert 'bipole' in bip_df.columns, "Need bipole column!"
-
-    contact1 = bip_df.bipole.apply(lambda x: x.split("-")[0].strip(" "))
-    contact2 = bip_df.bipole.apply(lambda x: x.split("-")[1].strip(" "))
-# python resultAggregator.py -s 'Epat38' -p '/mnt/ernie_main/Ghassan/ephys/data/Epat38'
-    df2 = bip_df.copy(deep=True)
-
-    bip_df['contact'] = contact1
-    df2['contact'] = contact2
+from utils import *
 
 
-    return pd.concat([bip_df,df2])
-
-def map_label(label):
-    label = int(label)
-    match label:
-        case 0:
-            return "NIZ"
-        case 1:
-            return 'SOZ'
-        case 2:
-            return 'PZ'
-        case 3:
-            return 'IZ'
-        
 def merge_label(subj_df: pd.DataFrame, label_df: pd.DataFrame, leftcol: str, rightcol: str ) -> pd.DataFrame:
     """Merges contact label into the subj_df for both stim and response regions
 
@@ -88,4 +61,38 @@ def agg_subject_results(result_files: list[str], label_df: pd.DataFrame) -> pd.D
     print(f"{len(set(dfs.subj))} subjects, total of {dfs.shape[0]} trials, dropped: {expected_rows - dfs.shape[0]}")
     return dfs
 
-    
+def score_adj_matrix(adj_mat, by='col'):
+    """z-scores a directed adjacency matrix against in-degree or out-degree
+
+    Args:
+        mat (np.array): NxN matrix of directed connections
+        by (str, optional): normalize by row or column. If specify col then this will center 
+        all in degrees (column-wise normalize). Defaults to 'col'.
+    NOTE: when choosing a column wise operations, the dim will = 0, this is because
+    the columnwise norm collapses rows. numpy.nanmeans asks which dimension to summarize,
+    and thus specifying 0 means we wish to collapse along the row dimension
+    Returns:
+        _type_: _description_
+    """
+    assert by== 'col' or by =='row', "select proper dimension to summarize, only supports 2D"
+    mu, std = get_stats(adj_mat, by)
+    centered = np.subtract(adj_mat, mu)
+    z_scored = np.divide(centered, std)
+    return z_scored
+
+def get_stats(adj_mat, by='col'):
+    assert by== 'col' or by =='row', "select proper dimension to summarize, only supports 2D"
+
+    dim = 0 if by == 'col' else 1
+    n = adj_mat.shape[0] 
+
+    mu = np.nanmean(adj_mat, axis=dim)
+    std = np.nanstd(adj_mat, axis=dim)
+
+    if by == "col": #reshape so that broadcast on subtract does element-wise along row/col
+        mu = mu.reshape(1,n)
+        std = std.reshape(1,n)
+    else:
+        mu = mu.reshape(n,1)
+        std = std.reshape(n,1)
+    return mu,std
