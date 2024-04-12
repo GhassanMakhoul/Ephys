@@ -4,4 +4,4 @@ filter:
       sig:True: 10
       sig:False: 10
 plot_options:
-  n_peaks: 5
+  n_peaks: 1

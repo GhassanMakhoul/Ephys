@@ -220,6 +220,7 @@ def handle_reparam_agg(fname,key, out_f, notes, **kwargs):
     plot_reparam_agg(reparam_df, out_f,resp, stim,peak_times=peak_times, notes=notes)
 
 def get_peak_times(fname, key,n_peaks=1):
+    print(n_peaks)
     with h5py.File(fname, 'r') as h5:
         trial = h5[key]
         peak_times = get_timing(trial,n_peaks=n_peaks)

@@ -62,7 +62,7 @@ def get_explained_var(pulse_trial) -> np.number:
     return ev.diagonal()
 
 
-def get_times_to_peak(curve: np.array, fs: int, n_peaks =1) -> list[float]:
+def get_times_to_peak(curve: np.array, fs: int, n_peaks =1, dist_time = .05) -> list[float]:
     """Using a peakfinding approach, this returns the index of the peak
     We are implementing this to characterize delays in response timing.
     The matsumoto2017 review on SPES posits that delays in peak response 
@@ -74,6 +74,7 @@ def get_times_to_peak(curve: np.array, fs: int, n_peaks =1) -> list[float]:
         
         fs (int): sampling rate - samples/second
         n_peaks (int) : number of peaks to examine. Defaults to 1.
+        dist_time (float) : peaks need to be this many ms apart
 
         #TODO - implement a windowing period may help peakfinder with known N1, N2
         #TODO - clarify if we want to only find positive deflections. Given the nature of 
@@ -83,13 +84,20 @@ def get_times_to_peak(curve: np.array, fs: int, n_peaks =1) -> list[float]:
     Returns:
         list[float]: list of times correlating to number of peaks
     """
-    dists =  .05 * fs #10 ms = .010s * fs samp/s = n_samps 
-    peak_inds, _ = find_peaks(curve,distance=dists)
-    if n_peaks < len(peak_inds):
-        diff = n_peaks - len(peak_inds)
-        np.append(peak_inds, [np.nan]*diff)
-    peak_inds = peak_inds[0:n_peaks]
-    return [ind/fs for ind in peak_inds]
+    start_ind= int(.01*fs) #exclude first 10ms 
+    peak_inds = np.argmax(curve[start_ind:])
+    return [peak_inds/fs + .01]
+    dists =   dist_time * fs #50 ms (default) = .010s * fs samp/s = n_samps
+    # peak_inds, _ = find_peaks(curve,distance=dists, threshold=min_height)
+    
+    # if n_peaks < len(peak_inds):
+    #     diff = n_peaks - len(peak_inds)
+    #     np.append(peak_inds, [np.nan]*diff)
+    # peak_inds = peak_inds[0:n_peaks]
+    # peak_times =  [ind/fs  for ind in peak_inds if ind/fs]
+
+    #return peak_times
+
 
 def get_timing(resp_h5,n_peaks=1):
     fs = resp_h5.attrs['fs']
@@ -225,6 +233,7 @@ def entry_to_df(key, resp_h5, **kwargs):
     2. alphas
     3. TR
     4. get explained variance
+    5. add time delay
     """
     alphas = resp_h5['alphas']
     TR = resp_h5.attrs['Tr']
