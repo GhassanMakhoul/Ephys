@@ -296,6 +296,16 @@ def agg_responses(subj: str, h5file: str, stim_folders: list, pathout: str, **kw
     agg_df['subj'] = subj
     agg_df.to_csv(os.path.join(pathout, f"{subj}_stim.csv"),index=False)
 
+
+def agg_crp(subj: str, h5file: str, stim_folders: list, pathout: str, **kwargs):
+    # open H5File (represents a stim setting)
+    # for each stim response region -> pull out CRP
+        # zero pad from 0 - 1000ms *f3
+    # add whole CRP to dataframe
+    # add stim_setting df to sesh_df
+    # Save out sesh_df
+    return
+
 def verify_pathout(pathout:str)->None:
     """Ensures that the path exists.
 
