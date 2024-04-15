@@ -304,7 +304,25 @@ def agg_crp(subj: str, h5file: str, stim_folders: list, pathout: str, **kwargs):
     # add whole CRP to dataframe
     # add stim_setting df to sesh_df
     # Save out sesh_df
+
+    for folder in tqdm(stim_folders):
+        h5f = os.path.join(folder, h5file)
+        stim_reg, ma = get_sesh_params(folder)
+        df = agg_crp_df(h5f, **kwargs ) # you write this function too
     return
+
+def agg_crp_df(stim_reg: str, ma: str, hd5: str, **kwargs) -> pd.DataFrame:
+    """Returns a df with the crp saved in each row,
+
+    Args:
+        stim_sesh (str): string of where stim occurred and how much
+        ma (str) : mA of stim sesh
+        hd5 (str): filename with the full path for opening the hdf5 file associated with this stim
+
+    Returns:
+        pd.DataFrame: N_stim_k_resp X M_samples one CRP per row
+    """
+    return # write this out, consult AGG SESH 
 
 def verify_pathout(pathout:str)->None:
     """Ensures that the path exists.
