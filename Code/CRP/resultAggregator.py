@@ -304,21 +304,25 @@ def agg_crp(subj: str, h5file: str, stim_folders: list, pathout: str, **kwargs):
     # add whole CRP to dataframe
     # add stim_df to subj_df
     # Save out subj_df
-    subj_df = []
+    dfs = []
+    i = 0 #start global index to be able to concatenate dataframes
     for folder in tqdm(stim_folders):
         h5f = os.path.join(folder, h5file)
         stim_reg, ma = get_sesh_params(folder)
-        #create df that is fully zero padded
-        stim_df = agg_crp_df(h5f, **kwargs ) # write function that adds crp data, leaves zeros if nothing to add
-        subj_df = pd.concat(stim_df)
+        stim_df = agg_crp_df(subj, stim_reg, ma, h5f, i, **kwargs ) # write function that adds crp data, leaves zeros if nothing to add
+        i += stim_df.shape[0]
 
-    return subj_df #a df for one subject with all crps for all significant stim-resp pairs as rows
+        dfs.append(stim_df)
+
+    subj_df = pd.concat(dfs) #a df for one subject with all crps for all significant stim-resp pairs as rows
+    subj_df.to_csv(os.path.join(pathout, f'{subj}_stim.csv'), index=False) 
 
 
-def agg_crp_df(stim_reg: str, ma: str, hd5: str, **kwargs) -> pd.DataFrame: #parallel agg_sesh_df
+def agg_crp_df(subj: str, stim_reg: str, ma: str, hd5: str, i: int, **kwargs) -> pd.DataFrame: #parallel agg_sesh_df
     """Returns a df with the crp saved in each row,
 
     Args:
+        subj: subject id for indexing
         stim_sesh (str): string of where stim occurred and how much
         ma (str) : mA of stim sesh
         hd5 (str): filename with the full path for opening the hdf5 file associated with this stim
@@ -327,19 +331,33 @@ def agg_crp_df(stim_reg: str, ma: str, hd5: str, **kwargs) -> pd.DataFrame: #par
         pd.DataFrame: N_stim_k_resp X M_samples one CRP per row
     """
     sig_test = kwargs['sig_test'] if "sig_test" in kwargs.keys() else False
-    stim_df = [] #zero pad here?
-    with h5py.File(f, 'r') as f:
-        for key in f.keys():
+    stim_df = []
+    stim_resp_pairs = []
+    ind_list = []
+    with h5py.File(hd5, 'r') as f: 
+        for key in f.keys(): #parse through every response corresponding to this stim
             if sig_test and not get_sig(key, hd5, f[key]):
                continue
-            response = f[key]
-            crp = response[crp][:] #do timestamp/second conversions, 1 column = 1 stamp, add metadata for sampling rate
-            stim_df.append(crp)
+            response = f[key] #specify a given stim-resp pair to define its attributes below
+            crp = response['crp'][:] #crp as an array of mV values indexed by samples
+            fs = 512 #sampling rate in samples/second, always 512 for our current data
+            crp_entry = np.zeros(fs) #zero padded array
+            #crp_entry[0, 0:int(tr*fs)] = crp #populate zero padded array with crp, specifyng via tr*fs how many zeroes will be replaced
+            crp_entry[:len(crp)] += crp
+            stim_df.append(crp_entry)
+            stim_resp_pairs.append(f'{stim_reg}_{key[9:]}_{ma}')
+            ind_list.append(i)
+            i += 1
+
         rej = len(f.keys()) - len(stim_df)
         if rej >0 :
             logger.info(f"\t\t\tRejected {rej} for resp: {key}")
 
-    stim_df = pd.concat(stim_df) #indexed by stim_resp pairs
+    stim_df = pd.DataFrame(stim_df, index=None)
+    stim_df.insert(0, 'global_index', ind_list)
+    stim_df.insert(1, 'subj', subj)
+    stim_df.insert(2, 'stim_resp', stim_resp_pairs)
+
     return stim_df #a df with all crps for one stim and all its resp pairs (i.e., one HD5 file), consult AGG SESH 
 
 def verify_pathout(pathout:str)->None:
