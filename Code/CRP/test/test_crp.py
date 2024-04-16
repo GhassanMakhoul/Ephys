@@ -16,9 +16,9 @@ from loguru import logger
 class TestResultAgg(unittest.TestCase):
 
     def setUp(self):
-        self.new_subj = {'subj':'Spat52', 'stim_pair':'LI5-LI6', 'mA':'5mA'}
-        self.old_subj = {'subj':'Epat27', 'stim_pair':'LA1-LA2', 'mA':'1mA'}
 
+        self.old_subj = {'subj':'Epat27', 'stim_pair':'LA1-LA2', 'mA':'1mA'}
+        self.new_subj = {'subj':'Spat52', 'stim_pair':'LI5-LI6', 'mA':'5mA'}
 
     
     def test_assembleTrial(self):
@@ -32,7 +32,7 @@ class TestResultAgg(unittest.TestCase):
         spes_new, fs_new = crp.assemble_trial(self.new_subj['subj'], self.new_subj['stim_pair'], self.new_subj['mA'])
         self.assertIsInstance(spes_new, pd.DataFrame)
         try:
-            self.assertEquals(type(fs_new), type(fs_old))
+            self.assertEqual(type(fs_new), type(fs_old))
         except AssertionError:
             import pdb
             pdb.set_trace()
@@ -59,7 +59,7 @@ class TestResultAgg(unittest.TestCase):
         V_trial = spes_new.pivot( columns='trial', values=contact)
         S_new = crp.cross_project_trial(V_trial.values,fs_new)
        
-        self.assertEquals(type(S_new), type(S_old))
+        self.assertEqual(type(S_new), type(S_old))
 
 
 if __name__ == '__main__':

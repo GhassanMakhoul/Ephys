@@ -2,3 +2,4 @@
 *.code-workspace
 *.pdf
 /Code/input_files/*
+*.csv

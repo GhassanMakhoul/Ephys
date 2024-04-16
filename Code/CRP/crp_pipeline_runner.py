@@ -8,7 +8,7 @@ from loguru import logger
 def prep_dirs(inp_line):
     _, _, _, pathout = get_params(inp_line)
     if not os.path.exists(pathout):
-        os.mkdir(pathout)
+        os.makedirs(pathout)
     fig_dir = os.path.join(pathout,"figs")
     if not os.path.exists(fig_dir):
         os.mkdir(fig_dir)
@@ -40,6 +40,7 @@ def get_params(inp_line):
 def call_crp(inp_line):
     subj, stim, ma, pathout, = get_params(inp_line)
     crp.run_crp_pipeline(subj, pathout, ma, stim)
+    
 @logger.catch
 def main(argv):
     logdir='logs/'

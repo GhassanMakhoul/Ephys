@@ -52,17 +52,7 @@ def CAR(df):
 
     return df
 
-def plot_channels(spes_df , channel_list,save=False,fout=''):
-    nrows = len(channel_list)
-    fig, axes = plt.subplots(nrows=nrows, ncols=1,sharex=True)
-    for i,ch in enumerate(channel_list):
-        ax = axes[i]
-        sns.lineplot(x=spes_df.index, y=spes_df[ch], ax=ax)
-    fig.suptitle("Average SP Resp")
 
-    if save:
-        plt.savefig(fout, transparent=True)
-    plt.close()
     
 def ix_to_time(n_samp:int,fs=512)->float:
     """converts sample number to time stamp n (samp) / fs (samps/sec)
@@ -92,32 +82,47 @@ def time_to_ix(timepoint:float, fs=512)-> int:
 def loadmat(file_path):
     try:
         spes =lm(file_path)
-        labels = [l[0] for l in spes['labels'][0]]
-        return {'labels': labels, 'pulse':spes['pulse'], 'fs':np.uint16(spes['fs'][0][0])} #hard coding some logic here, forcing  out of array
+        labels = [l[0][0] for l in spes['labels']]
+        return {'labels': labels, 'pulse':spes['filt_data'], 'fs':np.uint16(spes['fs'][0][0])} #hard coding some logic here, forcing  out of array
+    #TODO add region labels
     except NotImplementedError:
         spes = mat73.loadmat(file_path)
         spes['fs'] = np.uint16(spes['fs'])
-        return spes
+        return {"labels":  spes['labels'], 'pulse': spes['filt_data'],'fs':spes['fs']}
 
 #TODO remove IO/ file prep from main pipelin and add to runner
 
 
-def assemble_trial(subj, stim_pair, ma):
+def assemble_trial(subj, stim_pair, ma, folder='CCEP_single_pulses_bipole'):
+    """Returns a dataframe containing the LFP's measured for all single pulse trials for this subject
+    and stimulation session. Columns in df correspond to contact and rows correspond to the time series of the
+    LFP. One additional column tracks the pulse number. Note that this function is 
+    highly tethered to the file structure of the BIEN lab group.
+
+    Args:
+        subj ('str'): Subject to load sessions
+        stim_pair (str): stimulation pair
+        ma (str): milliamps further specifies stim session
+        folder (str, optional): Folder which contains pre-precessed LFP. Defaults to 'CCEP_single_pulses_bipole'.
+
+    Returns:
+        pd.DataFrame: All single pulse trials
+    """
     files = []
     spes_dfs = []
     for pulse in range(1,11):
-        file = f'{subj}/{subj}_CCEP_single_pulses/{subj}_{stim_pair}_{ma}_pulse_{pulse}.mat' #TODO move 'dirty work' (I/O hardcoding) to one method
+        file = f'{subj}/{subj}_{folder}/{subj}_{stim_pair}_{ma}_pulse_{pulse}.mat' #TODO move 'dirty work' (I/O hardcoding) to one method
         file_path = os.path.join(DATA_FOLDER, file)
         if not os.path.isfile(file_path):
-            print(f"File not exist:  {file}")
+            logger.warning(f"File not exist:  {file}")
             continue #check to see if file exists then skip if not, # would be better if just generated all pulse files directly
-        logger.info(f"Loading {file}")
+
         spes_trial = loadmat(file_path)
         fs = spes_trial['fs']
         full_train = spes_trial["pulse"]
         labels = spes_trial['labels']
-        df = construct_spes_df(full_train, labels,fs, CAR) #TODO find more pipeline way
-        df['trial'] =pulse
+        df = construct_spes_df(full_train, labels,fs) #TODO find more pipeline way
+        df['trial'] = pulse
         spes_dfs.append(df)
     
     spes_dfs = pd.concat(spes_dfs)
@@ -132,7 +137,7 @@ def cross_project_trial(V_full, fs, step=2):
     n_samps, k = V_full.shape
     assert n_samps >k, 'incorrect data shape or not enough samples!'
     cross_dfs = []
-    import pdb
+    
 
     #TODO consider adding area relationships
     for e in np.arange(10,n_samps,step):
@@ -159,21 +164,13 @@ def flatten_df(og_df, cols, flat_name, const_col):
     flat_df = pd.DataFrame(data=flat_data,columns=['voltage'])
     flat_cols = []
     for c in cols:
-        flat_cols = flat_cols + [c]*n
+        flat_cols = flat_cols + [c]*n #TODO use pd.stack
     flat_df[flat_name] = flat_cols
 
     flat_df[const_col] = np.tile(og_df[const_col],len(cols))
     return flat_df
 
 
-def plot_reparam(reparam_df,k):
-    assert "proj_0" in reparam_df.columns and 'epsilon_0' in reparam_df.columns, "Incorrect columns!"
-    fig, axes = plt.subplots(nrows=k, ncols=1, sharex=True)
-    for i in range(k):
-        cols = [f'proj_{i}', f'epsilon_{i}', 'crp']
-        ax = axes[i]
-        df = flatten_df(reparam_df,cols,'type','time')
-        sns.lineplot(data =df,y='voltage', x='time', hue='type', ax=ax)
 
 def reparam(V_data,crp):
     n = crp.shape[0]
@@ -184,7 +181,9 @@ def reparam(V_data,crp):
     return alphas, proj, ep
 
 def lin_PCA(V):
-    """returns the result of lin kernal PCA"""
+    """returns the result of lin kernal PCA
+    V is shape time x N_trials. For most cases, |time| >> |N_trials|
+    thus the kernel trick is necessary to generate an eigenvector in the time domain                                                """
     [S2,eigen_vectors] = np.linalg.eig(V.T@V,)
     S = np.sqrt(S2)
     sort_inds = np.argsort(S)[::-1]
@@ -193,15 +192,7 @@ def lin_PCA(V):
     V_kernel = V@eigen_vectors
     return V_kernel / S[None,:]
 
-def plot_cross_project(S, pathout, subj, ma, stim, contact):
 
-    with sns.plotting_context("paper"):
-        sns.lineplot(data=S, x="win_size", y="cross_proj")
-        fout = os.path.join(pathout, f'figs/{subj}_cross_proj_{contact}_{stim}_{ma}.pdf')
-        plt.title(f"Cross Proj for {contact} resp to {stim}")
-        plt.legend( bbox_to_anchor=[1.15, 0.5], loc='right')
-        plt.savefig(fout, transparent=True)
-    plt.close()
 
 def get_tr(cross_proj_df):
     m = cross_proj_df.groupby(by='win_size').mean()
@@ -215,7 +206,8 @@ def get_tr(cross_proj_df):
 def reparam_trial(V_tr, canonical_response, tr_win ):
     n_t, k = V_tr.shape 
     spes_trial = pd.DataFrame(data=V_tr, columns=[f'raw_{i}'for i in range(k)])
-    t = np.linspace(0,tr_win ,n_t)
+    s,e = tr_win
+    t = np.linspace(s, e, n_t)
     spes_trial['time'] = t
 
     alphas, proj, ep = reparam(V_tr,canonical_response)
@@ -232,28 +224,6 @@ def reparam_trial(V_tr, canonical_response, tr_win ):
     return trial_reparam_df
 
 
-def plot_reparam_trials(trial_reparam_df, k,fout):
-    my_colors = ['k','r','g']
-    fig, axes = plt.subplots(nrows=k, ncols=1,sharex=True)
-    for i in range(k):
-        axis=axes[i]
-        cols = [f'raw_{i}', f'proj_{i}', f'epsilon_{i}','time']
-        ax = trial_reparam_df[cols].plot(kind='line',x='time',color=my_colors, ax=axis,legend=i==k)
-        plt.ylabel('voltage')
-        plt.xlabel("time")
-        ax.get_legend()
-    plt.legend( bbox_to_anchor=[1.15, 0.5], loc='center', labels=['Raw','Proj','Epsilon'])
-    fig.suptitle("CRP Reparamaterization")
-    plt.savefig(fout,transparent=True)
-    plt.close()
-
-def plot_reparam_agg(trial_reparam_df, fout, proc='RAW'):
-    my_colors = ['r']*10+['g']*10+['k']*10 +['y'] #TODO fix magic number
-    trial_reparam_df.plot(kind='line',x='time',  color=my_colors)
-    plt.legend( bbox_to_anchor=[1.15, 0.5], loc='center')
-    plt.title("Reparamaterization on {proc} voltage")
-    plt.savefig(fout,transparent=True)
-    plt.close()
 
 def setup_logs(pathout: str):
     """Set up logging, adds dir if not exist, and adds sink
@@ -268,18 +238,17 @@ def setup_logs(pathout: str):
     logger.add(logf)
     return logger
 
+@logger.catch
 def run_crp_pipeline(subj, pathout, ma, stim):
     spes_df, fs = assemble_trial(subj, stim, ma)
     spes_df.to_csv(os.path.join(pathout,f'spes_{stim}_{ma}.csv'))
     
-    logger.info("Saving Average Responses")
     #for reg in tqdm(get_regions(spes_df.columns[0:-1])):
     #    cols = [c for c in spes_df.columns if reg == re.sub('[0-9]+','',c)]
     #    fout = os.path.join(pathout,f"figs/{subj}_avg_sp_resp_{stim}_stim_{reg}.pdf")
     #    plot_channels(spes_df, cols,save=True,fout=fout)
 
-    logger.info("Running Cross Projection!")
-    for contact in tqdm(spes_df.columns[0:-1]):
+    for contact in spes_df.columns[0:-1]:
         #calc
         V_trial = spes_df.pivot( columns='trial', values=contact)
         S = cross_project_trial(V_trial.values,fs)
@@ -289,23 +258,7 @@ def run_crp_pipeline(subj, pathout, ma, stim):
         n_t, k = eigenV.shape
         canonical_response = eigenV[:,0] #get top PC for crp
 
-        #plot
-        # print("Plotting data") 
-        # plot_cross_project(S, pathout,subj, ma, stim, contact)
-        
-        # trial_reparam_df = reparam_trial(V_tr, canonical_response, tr_win)
-        # fout = os.path.join(pathout, f'figs/{subj}_reparam_trials_{contact}_stim_{stim}_{ma}.pdf')
-        # plot_reparam_trials(trial_reparam_df, k, fout)
-        # fout = os.path.join(pathout, f'figs/{subj}_reparam_agg_{contact}_stim_{stim}_{ma}.pdf')
-        # plot_reparam_agg(trial_reparam_df,fout)
 
-        # ## on norm data
-        # norm = np.linalg.norm(V_tr, axis=1)
-        # V_norm =V_tr/ norm[:,None]
-        # #TODO look at this tomorrow
-        # norm_reparam_df = reparam_trial(V_norm, canonical_response, tr_win)
-        # fout = os.path.join(pathout, f'figs/{subj}_reparam_NORM_agg_{contact}_stim_{stim}_{ma}.pdf')
-        # plot_reparam_agg(norm_reparam_df,fout, proc='NORMED')
 
         #save:
         logger.success("Packaging out Results and Derivative Data")
@@ -318,7 +271,7 @@ def writeout(basis, S, V_tr, fs, tr_win, pathout: str, subj: str, stim :str, con
     filename is subject, the n create groups
 
     hdf5['/stim_sesh/resp_contact/...]
-        group attrs : {fs: sampling rate, tr_win: (ix1, ix2), Tr: resp (s)}
+        group attrs : {fs: sampling rate, tr_win: (ix1, ix2), Tr: resp (s), contact}
 
         datasets:
         .../V_tr 
@@ -343,7 +296,7 @@ def writeout(basis, S, V_tr, fs, tr_win, pathout: str, subj: str, stim :str, con
     """
     crp = basis[:,0]
     alphas, proj, ep = reparam(V_tr, crp)
-    h5f = os.path.join(pathout,'stim_resp.hdf5')
+    h5f = os.path.join(pathout,'stim_resp_bipole.hdf5')
     key = f'/response_{contact}/'
     try:
         S.to_hdf(h5f, key=os.path.join(key,'cross_proj'), mode='a')
@@ -358,6 +311,10 @@ def writeout(basis, S, V_tr, fs, tr_win, pathout: str, subj: str, stim :str, con
         grp.attrs['fs'] = fs
         grp.attrs['tr_win'] = (0,tr_win) #assumes starting at 0 with clean stim artifact
         grp.attrs['Tr'] = tr_win
+        grp.attrs['subj'] = str(subj) #forcing str type to avoid unsupported U11
+        grp.attrs['stim'] = str(stim)
+        grp.attrs['ma'] = str(ma)
+        grp.attrs['contact'] = str(contact)
 
 
         dset = grp.require_dataset('V_tr',V_tr.shape, float)
