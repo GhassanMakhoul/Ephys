@@ -89,7 +89,7 @@ class TestPlotPipeline(unittest.TestCase):
         out_f = self.reparam_out_f
         reparam_df = cr.get_reparam(f,k)
         
-        peak_times = cr.get_peak_times(f,k,n_peaks=2)
+        peak_times = cr.get_peak_times(f,k,n_peaks=3)
         cr.plot_reparam_agg(reparam_df,out_f,resp,stim,peak_times=peak_times)
         self.assertTrue(os.path.exists(out_f))
         print(f"Reparam-agg test saved to {out_f}")
@@ -123,7 +123,7 @@ class TestPlotPipeline(unittest.TestCase):
 
     # #     chs = cr.gen_plot_channels(self.spes_df.columns, 5000)
     # #     cr.plot_channels(self.spes_df,chs, self.spes_out_f)
-    # #     self.assertTrue(os.path.exists(self.spes_out_f))
+    # # #     self.assertTrue(os.path.exists(self.spes_out_f))
 
     def test_visualizePipe(self):
         with open('../config_plot.yml', 'r') as f:
