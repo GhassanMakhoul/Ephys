@@ -250,7 +250,7 @@ def entry_to_df(key, resp_h5, **kwargs):
 
 
 def get_stim_folders(subj: str, res_folder: str):
-    """Returns fodlers of each stim trial using glob.glob's fuzzy pattern matching
+    """Returns folders of each stim trial using glob.glob's fuzzy pattern matching
 
     Args:
         subj (str): subject ID, e.g. 'Spat30',
@@ -297,21 +297,25 @@ def agg_responses(subj: str, h5file: str, stim_folders: list, pathout: str, **kw
     agg_df.to_csv(os.path.join(pathout, f"{subj}_stim.csv"),index=False)
 
 
-def agg_crp(subj: str, h5file: str, stim_folders: list, pathout: str, **kwargs):
-    # open H5File (represents a stim setting)
+def agg_crp(subj: str, h5file: str, stim_folders: list, pathout: str, **kwargs): #parallel agg_reponses
+    # open H5File (represents a stim setting) (all H5Files have same name but in separate folders)
     # for each stim response region -> pull out CRP
         # zero pad from 0 - 1000ms *f3
     # add whole CRP to dataframe
-    # add stim_setting df to sesh_df
-    # Save out sesh_df
-
+    # add stim_df to subj_df
+    # Save out subj_df
+    subj_df = []
     for folder in tqdm(stim_folders):
         h5f = os.path.join(folder, h5file)
         stim_reg, ma = get_sesh_params(folder)
-        df = agg_crp_df(h5f, **kwargs ) # you write this function too
-    return
+        #create df that is fully zero padded
+        stim_df = agg_crp_df(h5f, **kwargs ) # write function that adds crp data, leaves zeros if nothing to add
+        subj_df = pd.concat(stim_df)
 
-def agg_crp_df(stim_reg: str, ma: str, hd5: str, **kwargs) -> pd.DataFrame:
+    return subj_df #a df for one subject with all crps for all significant stim-resp pairs as rows
+
+
+def agg_crp_df(stim_reg: str, ma: str, hd5: str, **kwargs) -> pd.DataFrame: #parallel agg_sesh_df
     """Returns a df with the crp saved in each row,
 
     Args:
@@ -322,7 +326,21 @@ def agg_crp_df(stim_reg: str, ma: str, hd5: str, **kwargs) -> pd.DataFrame:
     Returns:
         pd.DataFrame: N_stim_k_resp X M_samples one CRP per row
     """
-    return # write this out, consult AGG SESH 
+    sig_test = kwargs['sig_test'] if "sig_test" in kwargs.keys() else False
+    stim_df = [] #zero pad here?
+    with h5py.File(f, 'r') as f:
+        for key in f.keys():
+            if sig_test and not get_sig(key, hd5, f[key]):
+               continue
+            response = f[key]
+            crp = response[crp][:] #do timestamp/second conversions, 1 column = 1 stamp, add metadata for sampling rate
+            stim_df.append(crp)
+        rej = len(f.keys()) - len(stim_df)
+        if rej >0 :
+            logger.info(f"\t\t\tRejected {rej} for resp: {key}")
+
+    stim_df = pd.concat(stim_df) #indexed by stim_resp pairs
+    return stim_df #a df with all crps for one stim and all its resp pairs (i.e., one HD5 file), consult AGG SESH 
 
 def verify_pathout(pathout:str)->None:
     """Ensures that the path exists.
