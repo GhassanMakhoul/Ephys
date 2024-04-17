@@ -315,7 +315,7 @@ def agg_crp(subj: str, h5file: str, stim_folders: list, pathout: str, **kwargs):
         dfs.append(stim_df)
 
     subj_df = pd.concat(dfs) #a df for one subject with all crps for all significant stim-resp pairs as rows
-    subj_df.to_csv(os.path.join(pathout, f'{subj}_stim.csv'), index=False) 
+    subj_df.to_csv(os.path.join(pathout, f'{subj}_crp.csv'), index=False) 
 
 
 def agg_crp_df(subj: str, stim_reg: str, ma: str, hd5: str, i: int, **kwargs) -> pd.DataFrame: #parallel agg_sesh_df
@@ -417,8 +417,14 @@ def main(argv):
     logger.add(os.path.join(logdir, f'agg_{subj}.log'))
     stim_folders = get_stim_folders(subj, res_folder)
     agg_kwargs = config['agg'] if 'agg' in config.keys() else {}
-    agg_responses(subj, inpf, stim_folders, pathout, **agg_kwargs)
-    logger.success(f"SUCCESSFULLY aggregated responses for {subj}!")
+
+    if config['agg']['agg_crp_features']:
+        agg_responses(subj, inpf, stim_folders, pathout, **agg_kwargs)
+        logger.success(f"SUCCESSFULLY aggregated responses for {subj}!")
+
+    if config['agg']['agg_crp']:
+        agg_crp(subj, inpf, stim_folders, pathout, **agg_kwargs)
+        logger.success(f"SUCCESSFULLY aggregated CRP for {subj}")
 
     if config['plot']['gen_plots']:
         logger.info(f"Generating plot file for {subj}")
