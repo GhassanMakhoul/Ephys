@@ -6,6 +6,8 @@ agg:
   sig_test : true
   peak_times: 
     n_peaks: 1
+  agg_crp_features: false
+  agg_crp : true
 plot:
   gen_plots : true
   plot_path : "/mnt/ernie_main/Ghassan/ephys/data/SUBJ/fig/"

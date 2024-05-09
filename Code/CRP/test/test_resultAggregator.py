@@ -124,7 +124,22 @@ class TestResultAgg(unittest.TestCase):
     #    ragg.main(['-s', 'Epat26', '-p', pathout, '-c', config])
     #    res_file = os.path.join(pathout,self.subj + "_stim.csv")
     #    self.assertTrue(os.path.exists(res_file))
+    #    df = pd.read_csv("/mnt/ernie_main/Ghassan/ephys/test/Epat26_crp.csv")
+    #    self.assertEqual(len(set(df.subj)), 1)
 
+    def test_aggCRP(self):
+        """ test crp aggregation"""
+
+        with open('../config_agg.yml', 'r') as f:
+            config =  yaml.safe_load(f)
+            #TODO add a crp_agg argument in the config file
+        agg_kwargs = config['agg'] if 'agg' in config.keys() else {}
+        print("Test Agg CRP")
+        folders = ragg.get_stim_folders(self.subj, self.res_folder)
+        ragg.agg_crp(self.subj, self.filepath, \
+                      folders, '/mnt/ernie_main/Ghassan/ephys/test/',**agg_kwargs)
+        df = pd.read_csv("/mnt/ernie_main/Ghassan/ephys/test/Epat26_crp.csv")
+        self.assertEqual(len(set(df.subj)), 1)
 
 if __name__ == '__main__':
     logger.add('logs/tst_res_agg.log', level=20)
