@@ -1,3 +1,5 @@
+import logging
+logging.getLogger('mat73').setLevel(logging.CRITICAL)
 import os
 import re
 from scipy.io import loadmat
@@ -23,11 +25,18 @@ SEEG_FOLDER = '/mnt/ernie_main/000_Data/SEEG/SEEG_Entire_EMU_Downloads/data/'
 BANDS = ['delta', 'theta', 'alpha', 'beta','gamma_l', 'gamma_H']
 PERIOD = ['inter','pre','ictal','post']
 
+#configure logging
+logger = logging.getLogger(__name__)
+logging.basicConfig(filename='../logs/conn_dyn.log', level=logging.DEBUG)
 def load_mat(f):
     try:
         return loadmat(f)
     except NotImplementedError:
-        return mat73.loadmat(f)
+        try:
+            return mat73.loadmat(f)
+        except:
+            return None
+    
 
 def get_pat_conn_labels(pat_df, regions):
     """Returns an array of channels as NZ, SOZ, PZ, etc
@@ -80,20 +89,20 @@ def assemble_net_conn(subj_id, pdc_dict,soz_inds,pz_inds,nz_inds):
             band = BANDS[b]
             soz_in = pdc[b,:,soz_inds]
             soz_out = pdc[b,soz_inds,:]
-            net_soz = np.nansum(soz_in) - np.nansum(soz_out)
+            net_soz = np.nanmean(soz_in) - np.nanmean(soz_out)
             net_df.loc[ind] = [subj_id,period,'soz',net_soz,band]
             ind += 1
 
             pz_in = pdc[b,:,pz_inds]
             pz_out = pdc[b,pz_inds,:]
-            net_pz = np.nansum(pz_in) - np.nansum(pz_out)
+            net_pz = np.nanmean(pz_in) - np.nanmean(pz_out)
             net_df.loc[ind] = [subj_id,period,'pz',net_pz,band]
             ind +=1
 
 
             nz_in = pdc[b,:,nz_inds]
             nz_out = pdc[b,nz_inds,:]
-            net_nz = np.nansum(nz_in) - np.nansum(nz_out)
+            net_nz = np.nanmean(nz_in) - np.nanmean(nz_out)
             net_df.loc[ind] = [subj_id,period,'nz',net_nz,band]
             ind +=1
     return net_df    
@@ -113,6 +122,8 @@ def assemble_file(subj_id: str, conn_f: str, label_df: pd.DataFrame, **kwargs)->
     """
     
     conn_obj = load_mat(conn_f)
+    if conn_obj == None:
+        raise ValueError("Issue with load_mat")
     conn_dict = get_conn_dict(conn_obj, **kwargs)
     regions = [reg[0] for reg in conn_obj['pdc']['seizure']['bip_labels_used']]
     regions = format_bipoles(regions)
@@ -130,9 +141,17 @@ def agg_patient(subj_id, conn_folder, label_df, **kwargs) -> pd.DataFrame:
     
     conn_dfs = []
     for f in files:
-        net_df = assemble_file(subj_id, f, label_df, **kwargs)
-        net_df['conn_file'] = os.path.basename(f)
-        conn_dfs.append(net_df)
+        try:
+            net_df = assemble_file(subj_id, f, label_df, **kwargs)
+            net_df['conn_file'] = os.path.basename(f)
+            conn_dfs.append(net_df)
+        except KeyError as e:
+            logger.debug(f"Issue hanndling keys in bipole labels for {subj_id} in this file: {f}\n\t\tMessage: {e}")
+        except ValueError as e:
+            logger.debug(f"Issue with load_mat for {subj_id} in file: {f}\n\t\tMessage{e}")
+            
+    if len(conn_dfs) == 0:
+        return pd.DataFrame()
     return pd.concat(conn_dfs)
 
 def agg_subjects(folders: list[str], subject_ids: list[str], bipole_label_df:pd.DataFrame, **kwargs ) -> pd.DataFrame:
@@ -155,7 +174,8 @@ def agg_subjects(folders: list[str], subject_ids: list[str], bipole_label_df:pd.
         subj_id = subject_ids[i]
         label_df  = bipole_label_df[bipole_label_df.subj == subj_id]
         df = agg_patient(subj_id, conn_dir, label_df, **kwargs)
-        conn_dfs.append(df)
+        if df.shape[0] > 0:
+            conn_dfs.append(df)
     return pd.concat(conn_dfs)
         
     
