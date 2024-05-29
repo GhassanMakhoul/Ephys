@@ -2,6 +2,8 @@ import os
 import re
 from scipy.io import loadmat
 import mat73
+import glob
+
 
 from collections import Counter
 import pandas as pd
@@ -10,8 +12,11 @@ import mne
 
 import seaborn as sns
 import matplotlib.pyplot as plt
-
+import tqdm
 from utils import *
+
+#TODO: work through and log relevant output for mass run
+#TODO: make more modular for ANY connectivity metric, not just PDC
 
 TIMELINE_F = '/mnt/ernie_main/000_Data/SEEG/SEEG_Periictal/data/Extracted_Per_Event_Interictal/all_time_data_01042023_212306.csv'
 SEEG_FOLDER = '/mnt/ernie_main/000_Data/SEEG/SEEG_Entire_EMU_Downloads/data/'
@@ -24,3 +29,147 @@ def load_mat(f):
     except NotImplementedError:
         return mat73.loadmat(f)
 
+def get_pat_conn_labels(pat_df, regions):
+    """Returns an array of channels as NZ, SOZ, PZ, etc
+
+    Args:
+        pat_df (_type_): dataframe with subj and labels
+    """
+    
+    contact_designation = pat_df.label.values
+    bipoles = pat_df.bipole.values
+    bip_dict = dict(zip(bipoles, contact_designation))
+    pat_conn_labels = np.array([bip_dict[b] for b in regions])
+    return pat_conn_labels
+
+def get_reg_inds(pat_conn_labels):
+    soz_inds = np.where(pat_conn_labels == 'SOZ')[0]
+    pz_inds = np.where(pat_conn_labels == 'PZ')[0]
+    nz_bool = pat_conn_labels == 'NIZ'
+    iz_bool = pat_conn_labels =='IZ'
+    nz_inds = np.where(np.logical_or(nz_bool, iz_bool))[0]
+    return {'soz':soz_inds, 'pz' : pz_inds, 'nz': nz_inds}
+
+def get_conn_dict(conn_obj,key='pdc', periods=PERIOD):
+    #TODO fix final keys 
+    inter_conn = conn_obj[key]['seizure']['PDC_interictal']
+    pre_conn = conn_obj[key]['seizure']['PDC_pre']
+    ictal_conn = conn_obj[key]['seizure']['PDC_ictal']
+    post_conn = conn_obj[key]['seizure']['PDC_post']
+    conn_dict = dict(zip(periods, [inter_conn, pre_conn, ictal_conn, post_conn]))
+    return conn_dict
+
+def assemble_net_conn(subj_id, pdc_dict,soz_inds,pz_inds,nz_inds):
+    """Assemble net directed connectivity across periods of interest for all 
+    frequency bands
+
+    Args:
+        subj_id (_type_): string of subject id
+        pdc_dict (_type_): dictionary mapping period (str) to pdc (np.array)
+        soz_inds (_type_): indices corresponding to soz nodes
+        pz_inds (_type_): pz node indices
+        nz_inds (_type_): nz node indices
+
+    Returns:
+        _type_: Dataframe of next connectivity for each region.
+    """
+    net_df = pd.DataFrame(columns=['subj', 'period', 'region', 'net_pdc', 'freq_band'])
+    ind = 0 
+    for period, pdc in pdc_dict.items():
+        for b in range(6):
+            band = BANDS[b]
+            soz_in = pdc[b,:,soz_inds]
+            soz_out = pdc[b,soz_inds,:]
+            net_soz = np.nansum(soz_in) - np.nansum(soz_out)
+            net_df.loc[ind] = [subj_id,period,'soz',net_soz,band]
+            ind += 1
+
+            pz_in = pdc[b,:,pz_inds]
+            pz_out = pdc[b,pz_inds,:]
+            net_pz = np.nansum(pz_in) - np.nansum(pz_out)
+            net_df.loc[ind] = [subj_id,period,'pz',net_pz,band]
+            ind +=1
+
+
+            nz_in = pdc[b,:,nz_inds]
+            nz_out = pdc[b,nz_inds,:]
+            net_nz = np.nansum(nz_in) - np.nansum(nz_out)
+            net_df.loc[ind] = [subj_id,period,'nz',net_nz,band]
+            ind +=1
+    return net_df    
+
+def assemble_file(subj_id: str, conn_f: str, label_df: pd.DataFrame, **kwargs)->pd.DataFrame:
+    """For a given subject's connectivity struct, return the dataframe containing net
+    connectivity for each frequency band, over relevant periods
+    NOTE: this will only work with DIRECTED connecitivity
+
+    Args:
+        subj_id (str): subject id ex Epat02
+        conn_f (str): .mat struct with connectivity matrices
+        label_df (df): df of channel labels -> {SOZ_inds,NZ_inds, PZ_inds}
+
+    Returns:
+        pd.DataFrame: net connecitivity
+    """
+    
+    conn_obj = load_mat(conn_f)
+    conn_dict = get_conn_dict(conn_obj, **kwargs)
+    regions = [reg[0] for reg in conn_obj['pdc']['seizure']['bip_labels_used']]
+    regions = format_bipoles(regions)
+    pat_conn_labels = get_pat_conn_labels(label_df, regions)
+    label_inds = get_reg_inds(pat_conn_labels)
+    soz_inds, pz_inds, nz_inds = label_inds['soz'], label_inds['pz'], label_inds['nz']
+    return assemble_net_conn(subj_id, conn_dict, soz_inds, pz_inds,nz_inds)
+
+def agg_patient(subj_id, conn_folder, label_df, **kwargs) -> pd.DataFrame:
+    """Aggregate all connecivity files within a folder and return as one df
+    NOTE: assumes tht all .mat file in this folder are connectivity structs to analyze
+    """
+    files = glob.glob(os.path.join(conn_folder, "*.mat"))
+
+    
+    conn_dfs = []
+    for f in files:
+        net_df = assemble_file(subj_id, f, label_df, **kwargs)
+        net_df['conn_file'] = os.path.basename(f)
+        conn_dfs.append(net_df)
+    return pd.concat(conn_dfs)
+
+def agg_subjects(folders: list[str], subject_ids: list[str], bipole_label_df:pd.DataFrame, **kwargs ) -> pd.DataFrame:
+    """Given a list of folders and subjects aggregate connectivity matrices across subjects
+
+    Args:
+        folders (list[str]): list of subject folders
+        subject_ids (list[str]): list of subject IDS NOTE: subj_ids must be aligned with subj folders!
+        bipole_label_df (pd.DataFrame): df with bipole labels should have following columns: 'subj',
+        'bipole', 'label'. Used to designate SOZ NZ, ets
+
+    Returns:
+        pd.DataFrame: _description_
+    """
+    #first check that there are .mat files in the folders
+    folders = check_folders(folders)
+    conn_dfs = []
+
+    for i, conn_dir in enumerate(folders):
+        subj_id = subject_ids[i]
+        label_df  = bipole_label_df[bipole_label_df.subj == subj_id]
+        df = agg_patient(subj_id, conn_dir, label_df, **kwargs)
+        conn_dfs.append(df)
+    return pd.concat(conn_dfs)
+        
+    
+def check_folders(folders:list[str])-> list[str]:
+    """Standard input checker to make sure that each folder has a .mat file in it
+
+    Args:
+        folders (list[str]): list of folders containing .mat structs of connecivity
+
+    Returns:
+        list[str]: filtered list with empty folders filtered out
+    """
+    
+    return [f for f in folders if len(glob.glob(os.path.join(f, "*.mat"))) != 0 ]
+    
+
+    
