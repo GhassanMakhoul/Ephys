@@ -27,7 +27,7 @@ PERIOD = ['inter','pre','ictal','post']
 
 #configure logging
 logger = logging.getLogger(__name__)
-logging.basicConfig(filename='../logs/conn_dyn.log', level=logging.DEBUG)
+logging.basicConfig(filename='../logs/conn_dyn.log', level=logging.WARNING)
 def load_mat(f):
     try:
         return loadmat(f)
@@ -38,13 +38,14 @@ def load_mat(f):
             return None
     
 
-def get_pat_conn_labels(pat_df, regions):
+def get_pat_conn_labels(pat_df, regions, subj_id):
     """Returns an array of channels as NZ, SOZ, PZ, etc
 
     Args:
         pat_df (_type_): dataframe with subj and labels
     """
-    
+    assert len(set(pat_df.subj)) == 1, "Multiple subjects not allowed!"
+    assert pat_df.subj.values[0] == subj_id, "incorrect subject dataframe"
     contact_designation = pat_df.label.values
     bipoles = pat_df.bipole.values
     bip_dict = dict(zip(bipoles, contact_designation))
@@ -68,7 +69,7 @@ def get_conn_dict(conn_obj,key='pdc', periods=PERIOD):
     conn_dict = dict(zip(periods, [inter_conn, pre_conn, ictal_conn, post_conn]))
     return conn_dict
 
-def assemble_net_conn(subj_id, pdc_dict,soz_inds,pz_inds,nz_inds):
+def assemble_net_conn(subj_id, pdc_dict,soz_inds,pz_inds,nz_inds,bands=BANDS):
     """Assemble net directed connectivity across periods of interest for all 
     frequency bands
 
@@ -85,23 +86,26 @@ def assemble_net_conn(subj_id, pdc_dict,soz_inds,pz_inds,nz_inds):
     net_df = pd.DataFrame(columns=['subj', 'period', 'region', 'net_pdc', 'freq_band'])
     ind = 0 
     for period, pdc in pdc_dict.items():
-        for b in range(6):
-            band = BANDS[b]
-            soz_in = pdc[b,:,soz_inds]
-            soz_out = pdc[b,soz_inds,:]
+        for b in range(len(bands)):
+            z_pdc_in = z_score_conn(pdc[b, :,:],direction='col')
+            z_pdc_out = z_score_conn(pdc[b,:,:], direction='row')
+
+            band = bands[b]
+            soz_in = z_pdc_out[:,soz_inds]
+            soz_out = z_pdc_in[soz_inds,:]
             net_soz = np.nanmean(soz_in) - np.nanmean(soz_out)
             net_df.loc[ind] = [subj_id,period,'soz',net_soz,band]
             ind += 1
 
-            pz_in = pdc[b,:,pz_inds]
-            pz_out = pdc[b,pz_inds,:]
+            pz_in = z_pdc_out[:,pz_inds]
+            pz_out = z_pdc_in[pz_inds,:]
             net_pz = np.nanmean(pz_in) - np.nanmean(pz_out)
             net_df.loc[ind] = [subj_id,period,'pz',net_pz,band]
             ind +=1
 
 
-            nz_in = pdc[b,:,nz_inds]
-            nz_out = pdc[b,nz_inds,:]
+            nz_in = z_pdc_out[:,nz_inds]
+            nz_out = z_pdc_in[nz_inds,:]
             net_nz = np.nanmean(nz_in) - np.nanmean(nz_out)
             net_df.loc[ind] = [subj_id,period,'nz',net_nz,band]
             ind +=1
@@ -125,12 +129,16 @@ def assemble_file(subj_id: str, conn_f: str, label_df: pd.DataFrame, **kwargs)->
     if conn_obj == None:
         raise ValueError("Issue with load_mat")
     conn_dict = get_conn_dict(conn_obj, **kwargs)
-    regions = [reg[0] for reg in conn_obj['pdc']['seizure']['bip_labels_used']]
-    regions = format_bipoles(regions)
-    pat_conn_labels = get_pat_conn_labels(label_df, regions)
+    pat_conn_labels = get_regions(label_df, conn_obj,subj_id)
     label_inds = get_reg_inds(pat_conn_labels)
     soz_inds, pz_inds, nz_inds = label_inds['soz'], label_inds['pz'], label_inds['nz']
     return assemble_net_conn(subj_id, conn_dict, soz_inds, pz_inds,nz_inds)
+
+def get_regions(label_df, conn_obj, subj_id):
+    regions = [reg[0] for reg in conn_obj['pdc']['seizure']['bip_labels_used']]
+    regions = format_bipoles(regions)
+    pat_conn_labels = get_pat_conn_labels(label_df, regions,subj_id)
+    return pat_conn_labels
 
 def agg_patient(subj_id, conn_folder, label_df, **kwargs) -> pd.DataFrame:
     """Aggregate all connecivity files within a folder and return as one df
@@ -190,6 +198,76 @@ def check_folders(folders:list[str])-> list[str]:
     """
     
     return [f for f in folders if len(glob.glob(os.path.join(f, "*.mat"))) != 0 ]
+
+
+def map_num_soz(l:int, remap_iz =False)->str:
+    """Returns label for each number following this convention
+            # 0 - NIZ 
+            # 1 - SOZ 
+            # 2 - PZ
+            # 3 - IZ
+    Args:
+        l (int): soz designation code found in structs
+
+    Returns:
+        str: string designation of 'SOZ', 'NIZ', etc
+    """
+    match l:
+        case 0:
+            return "NIZ"
+        case 1:
+            return "SOZ"
+        case 2: 
+            return "PZ"
+        case 3:
+            if remap_iz:
+                return "NIZ"
+            return "IZ"
+def struct_to_pat_df(struct, sub_ids:list[str])->pd.DataFrame:
+    """Takes the ISH cohort struct and converts to dataframe similar to agg_subjects
+    NOTE: this method assumes struct organization for accessing data is the same as 
+    found in the PCA project original 81 structs folder
+    Args:
+        struct (_type_): matlab struct
+        sub_ids (list[str]): list of subject ids
+
+    Returns:
+        pd.DataFrame: pdc connectivity net in out perf freq, per region
+    """
     
+    logger = logging.getLogger(__name__)
+    logging.basicConfig(filename='conn_dyn.log')
+    subj_dfs = []
+    for i, pat_obj in enumerate(struct['pats'][0]):
+        subj_id = sub_ids[i]
+        # map numbers to SOZ IZ etc 
+        node_labels = np.array([map_num_soz(l, remap_iz=True) for l in pat_obj['SOZ']])
+        
+        label_inds = get_reg_inds(node_labels)
+        soz_inds, pz_inds, nz_inds = label_inds['soz'], label_inds['pz'], label_inds['nz']
+        if pz_inds.shape[0] == 0:
+            print(f"Subj {subj_id} has no PZ designation")
+            logger.warning(f"Subj {subj_id} has no PZ zone!")
+        conn_mat = long_to_mat(pat_obj['long_Z'])
+        pdc_dict = {'eyes_closed_inter':conn_mat}
+        df = assemble_net_conn(subj_id, pdc_dict,soz_inds,pz_inds,nz_inds,bands=BANDS[1:])
+        subj_dfs.append(df)
+    return pd.concat(subj_dfs)
+
+def long_to_mat(long_mat:np.ndarray)-> np.ndarray:
+    """convert an array (or list ) of 2D matrices to a proper 3 D matrix
+
+    Args:
+        long_mat (_type_): 
+
+    Returns:
+        np.ndarray: 3D matrix with N_BANDS x K_NODES x K_Nodes
+    """
+    k_nodes, _ = long_mat[0][0].shape
+    n_bands = long_mat.shape[0]
+    conn_mat = np.zeros((n_bands, k_nodes,k_nodes))
+    for b in range(n_bands):
+        conn_mat[b,:,:] = long_mat[b][0]
+    return conn_mat
 
     
