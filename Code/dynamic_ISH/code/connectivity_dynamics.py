@@ -1,10 +1,10 @@
 import logging
-logging.getLogger('mat73').setLevel(logging.CRITICAL)
 import os
 import re
 from scipy.io import loadmat
 import mat73
 import glob
+import pdb
 
 
 from collections import Counter
@@ -37,6 +37,7 @@ def load_mat(f):
         try:
             return mat73.loadmat(f)
         except:
+            print(f"Problem Loading {f}")
             return None
     
 
@@ -62,22 +63,46 @@ def get_reg_inds(pat_conn_labels):
     nz_inds = np.where(np.logical_or(nz_bool, iz_bool))[0]
     return {'soz':soz_inds, 'pz' : pz_inds, 'nz': nz_inds}
 
-def get_conn_dict(conn_obj,key='pdc', periods=PERIOD, filter_dist=0,**kwargs):
-    #TODO fix final keys 
-    inter_conn = conn_obj[key]['seizure']['PDC_interictal']
-    pre_conn = conn_obj[key]['seizure']['PDC_pre']
-    ictal_conn = conn_obj[key]['seizure']['PDC_ictal']
-    post_conn = conn_obj[key]['seizure']['PDC_post']
-    if filter_dist > 0:
+def get_conn_dict(conn_obj,key='pdc', periods=PERIOD, filt_dist=0,**kwargs):
+    #TODO fix final keys
+    inter_conn = read_conn_struct(conn_obj, key,'PDC_interictal')
+    pre_conn = read_conn_struct(conn_obj, key, 'PDC_pre')
+    ictal_conn = read_conn_struct(conn_obj, key, 'PDC_ictal')
+    post_conn = read_conn_struct(conn_obj, key, 'PDC_post')
+    if filt_dist > 0:
         dist_mat = conn_obj['pdc']['seizure']['dist_mat']
-        d_x, d_y= np.where(dist_mat < filter_dist)
-        inter_conn[:, d_x, d_y] = np.nan
-        pre_conn[:, d_x, d_y] = np.nan
-        ictal_conn[:, d_x, d_y] = np.nan
-        post_conn[:, d_x,d_y] = np.nan
-
+        inter_conn = filter_dist(inter_conn, dist_mat, filt_dist)
+        pre_conn = filter_dist(pre_conn, dist_mat, filt_dist)
+        ictal_conn = filter_dist(ictal_conn, dist_mat, filt_dist)
+        post_conn = filter_dist(post_conn, dist_mat, filt_dist)
     conn_dict = dict(zip(periods, [inter_conn, pre_conn, ictal_conn, post_conn]))
     return conn_dict
+
+def read_conn_struct(conn_obj, metric_key, data_key):
+    try:
+        conn_data = conn_obj[metric_key]['seizure'][data_key]
+    except KeyError:
+        conn_data = conn_obj['seizure'][data_key]
+    return conn_data
+
+def filter_dist(conn_mat:np.ndarray, dist_mat:np.ndarray, filt_dist:float)-> np.ndarray:
+    """removes connections from a functional connectivity matrix if the euclidean
+    distance is under a FILT_DIST threshold
+
+    Args:
+        conn_mat (np.ndarray): functional connectivity matrix, can be shape NxN or K_BAND x N x N
+        filt_dist (np.ndarray): N x N euclidean distance matrix_
+
+    Returns:
+        np.ndarray: filtered connectivity matrix    
+    """
+    d_x, d_y= np.where(dist_mat < filt_dist)
+    if len(conn_mat.shape) == 3:
+        assert conn_mat.shape[1] > conn_mat.shape[0], "Weird shape order, check connectivity matrix!"
+        conn_mat[:, d_x, d_y] = np.nan
+        return conn_mat
+    conn_mat[d_x, d_y] = np.nan
+    return conn_mat
 
 def assemble_net_conn(subj_id, pdc_dict,soz_inds,pz_inds,nz_inds,bands=BANDS):
     """Assemble net directed connectivity across periods of interest for all 
@@ -134,18 +159,25 @@ def assemble_file(subj_id: str, conn_f: str, label_df: pd.DataFrame, **kwargs)->
     Returns:
         pd.DataFrame: net connecitivity
     """
+
     
     conn_obj = load_mat(conn_f)
+    
+    conn_dict, label_inds = prep_conn(subj_id, label_df, conn_obj, **kwargs)
+    soz_inds, pz_inds, nz_inds = label_inds['soz'], label_inds['pz'], label_inds['nz']
+    return assemble_net_conn(subj_id, conn_dict, soz_inds, pz_inds,nz_inds)
+
+def prep_conn(subj_id, label_df, conn_obj, **kwargs):
     if conn_obj == None:
         raise ValueError("Issue with load_mat")
     conn_dict = get_conn_dict(conn_obj, **kwargs)
     pat_conn_labels = get_regions(label_df, conn_obj,subj_id)
     label_inds = get_reg_inds(pat_conn_labels)
-    soz_inds, pz_inds, nz_inds = label_inds['soz'], label_inds['pz'], label_inds['nz']
-    return assemble_net_conn(subj_id, conn_dict, soz_inds, pz_inds,nz_inds)
+    return conn_dict, label_inds
 
 def get_regions(label_df, conn_obj, subj_id):
-    regions = [reg[0] for reg in conn_obj['pdc']['seizure']['bip_labels_used']]
+    regions = [reg[0] for reg in read_conn_struct(conn_obj, 'pdc', 'bip_labels_used')]
+    
     regions = format_bipoles(regions)
     pat_conn_labels = get_pat_conn_labels(label_df, regions,subj_id)
     return pat_conn_labels
@@ -233,7 +265,7 @@ def map_num_soz(l:int, remap_iz =False)->str:
             if remap_iz:
                 return "NIZ"
             return "IZ"
-def struct_to_pat_df(struct, sub_ids:list[str])->pd.DataFrame:
+def struct_to_pat_df(struct, sub_ids:list[str], filt_dist=0)->pd.DataFrame:
     """Takes the ISH cohort struct and converts to dataframe similar to agg_subjects
     NOTE: this method assumes struct organization for accessing data is the same as 
     found in the PCA project original 81 structs folder
@@ -258,7 +290,10 @@ def struct_to_pat_df(struct, sub_ids:list[str])->pd.DataFrame:
         if pz_inds.shape[0] == 0:
             print(f"Subj {subj_id} has no PZ designation")
             logger.warning(f"Subj {subj_id} has no PZ zone!")
-        conn_mat = long_to_mat(pat_obj['long_Z'])
+        conn_mat = long_to_mat(pat_obj['long_Z'] )
+        if filt_dist >0:
+            dist_mat = pat_obj['dist_mat']
+            conn_mat = filter_dist(conn_mat, dist_mat,filt_dist)
         pdc_dict = {'eyes_closed_inter':conn_mat}
         df = assemble_net_conn(subj_id, pdc_dict,soz_inds,pz_inds,nz_inds,bands=BANDS[1:])
         subj_dfs.append(df)
@@ -280,4 +315,52 @@ def long_to_mat(long_mat:np.ndarray)-> np.ndarray:
         conn_mat[b,:,:] = long_mat[b][0]
     return conn_mat
 
-    
+def conn_to_flow_df(conn_mat:np.ndarray, reg_inds:dict)->pd.DataFrame:
+    """Converts a connectivity matrix to a df containing generalized 
+    directed connectivity in a source -> target , value format
+
+    Args:
+        conn_mat (np.ndarray): NxN connectivity matrix
+        reg_inds (dict): description of regions of interest to summarize long (SOZ,PZ, etc)
+
+    Returns:
+        pd.DataFrame: dataframe with source to target, and values as a ratio of total connectivity
+    """
+    flow_targets = [(src, trgt) for src in reg_inds.keys() for trgt in reg_inds.keys()]
+    flow_df = pd.DataFrame(columns=['source','target','value'])
+    total_conn = np.nansum(conn_mat)
+    for i, (src, trgt) in enumerate(flow_targets):
+        src_inds = reg_inds[src]
+        trgt_inds = reg_inds[trgt]
+        src_rows = conn_mat[src_inds,:]
+        src_trgt_conns = np.nansum(src_rows[:,trgt_inds])/total_conn * 100 #calc proportion of total connections
+        flow_df.loc[i] = [src,trgt,src_trgt_conns]
+    return flow_df
+
+def map_subject_to_flow(subj_id, pat_files, label_df, filt_dist=0, **kwargs ):
+    """_summary_
+
+    Args:
+        subj_id (_type_): _description_
+        conn_obj (_type_): _description_
+        filt_dist (int, optional): _description_. Defaults to 0.
+    """
+    flow_dfs = []
+    for pat_f in pat_files:
+        pat_obj = load_mat(pat_f)
+        conn_dict, label_inds = prep_conn(subj_id, label_df, pat_obj,filt_dist=filt_dist, **kwargs)
+        if label_inds['pz'].shape[0] == 0:
+            print(f"Subj {subj_id} has no PZ designation")
+            logger.warning(f"Subj {subj_id} has no PZ zone!")
+        for b, band in enumerate(BANDS):
+            for period in PERIOD:
+                conn_mat = conn_dict[period][b,:,:]
+                df = conn_to_flow_df(conn_mat, label_inds)
+                df['subj'] = subj_id
+                df['band'] = band
+                df['period'] = period
+                flow_dfs.append(df)
+    return pd.concat(flow_dfs)
+
+def map_cohort_to_flow():
+    return None
