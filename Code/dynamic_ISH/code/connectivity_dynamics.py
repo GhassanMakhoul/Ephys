@@ -362,5 +362,11 @@ def map_subject_to_flow(subj_id, pat_files, label_df, filt_dist=0, **kwargs ):
                 flow_dfs.append(df)
     return pd.concat(flow_dfs)
 
-def map_cohort_to_flow():
-    return None
+def map_cohort_to_flow(subj_ids, folders,label_df,**kwargs):
+    flow_df = []
+    for i,subj in enumerate(subj_ids):
+        sub_files = glob.glob(os.path.join(folders[i], '*mat'))
+        sub_label_df = label_df[label_df.subj==subj]
+        df  = map_subject_to_flow(subj, sub_files, sub_label_df, **kwargs)
+        flow_df.append(df)
+    return pd.concat(flow_df)
