@@ -19,6 +19,8 @@ from utils import *
 
 #TODO: work through and log relevant output for mass run
 #TODO: make more modular for ANY connectivity metric, not just PDC
+#TODO: refine assemble_net_conn to iterate through regions
+#TODO: make assemble_net_conn more modular so it can be extended to exclude certain within soz connections
 
 TIMELINE_F = '/mnt/ernie_main/000_Data/SEEG/SEEG_Periictal/data/Extracted_Per_Event_Interictal/all_time_data_01042023_212306.csv'
 SEEG_FOLDER = '/mnt/ernie_main/000_Data/SEEG/SEEG_Entire_EMU_Downloads/data/'
@@ -60,12 +62,20 @@ def get_reg_inds(pat_conn_labels):
     nz_inds = np.where(np.logical_or(nz_bool, iz_bool))[0]
     return {'soz':soz_inds, 'pz' : pz_inds, 'nz': nz_inds}
 
-def get_conn_dict(conn_obj,key='pdc', periods=PERIOD):
+def get_conn_dict(conn_obj,key='pdc', periods=PERIOD, filter_dist=0,**kwargs):
     #TODO fix final keys 
     inter_conn = conn_obj[key]['seizure']['PDC_interictal']
     pre_conn = conn_obj[key]['seizure']['PDC_pre']
     ictal_conn = conn_obj[key]['seizure']['PDC_ictal']
     post_conn = conn_obj[key]['seizure']['PDC_post']
+    if filter_dist > 0:
+        dist_mat = conn_obj['pdc']['seizure']['dist_mat']
+        d_x, d_y= np.where(dist_mat < filter_dist)
+        inter_conn[:, d_x, d_y] = np.nan
+        pre_conn[:, d_x, d_y] = np.nan
+        ictal_conn[:, d_x, d_y] = np.nan
+        post_conn[:, d_x,d_y] = np.nan
+
     conn_dict = dict(zip(periods, [inter_conn, pre_conn, ictal_conn, post_conn]))
     return conn_dict
 
