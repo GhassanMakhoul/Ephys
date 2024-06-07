@@ -55,6 +55,7 @@ def format_soz(soz_labels):
 
 def format_bipole(bipole):
     bipole = bipole.strip()
+    bipole = bipole.replace("-","")
     p = "[0-9][a-zA-Z]"
     bip_match = re.search(p, bipole)
 

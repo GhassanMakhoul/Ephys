@@ -5,6 +5,7 @@ from scipy.io import loadmat
 import mat73
 import glob
 import pdb
+from multiprocessing import Pool
 
 
 from collections import Counter
@@ -346,8 +347,8 @@ def map_subject_to_flow(subj_id, pat_files, label_df, filt_dist=0, **kwargs ):
         filt_dist (int, optional): _description_. Defaults to 0.
     """
     flow_dfs = []
-    for pat_f in pat_files:
-        pat_obj = load_mat(pat_f)
+    pat_structs = load_structs(pat_files, **kwargs)
+    for pat_obj in pat_structs:
         conn_dict, label_inds = prep_conn(subj_id, label_df, pat_obj,filt_dist=filt_dist, **kwargs)
         if label_inds['pz'].shape[0] == 0:
             print(f"Subj {subj_id} has no PZ designation")
@@ -359,8 +360,21 @@ def map_subject_to_flow(subj_id, pat_files, label_df, filt_dist=0, **kwargs ):
                 df['subj'] = subj_id
                 df['band'] = band
                 df['period'] = period
+                df['seizure'] = pat_obj['sz_type']
                 flow_dfs.append(df)
     return pd.concat(flow_dfs)
+
+def load_structs(file_list, cores=12)->list[dict]:
+    """loading .mat structs is the limiting step in most of these pipelines
+    so let's paralellize this. With a 10G port, this should easily speed things up.
+    Will slow down if querying ernie from diff network (maybe a VPN)
+
+    Args:
+        file_list (_type_): list of .mats to load
+        cores (int, optional) Defaults to 12.
+    """
+    p = Pool(cores)
+    return p.map(load_mat,file_list)
 
 def map_cohort_to_flow(subj_ids, folders,label_df,**kwargs):
     flow_df = []
