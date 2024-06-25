@@ -1,0 +1,10 @@
+scipy
+numpy
+mne
+pandas
+#I/O
+mat73
+h5py
+#plotting
+matplotlib
+seaborn
