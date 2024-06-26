@@ -163,3 +163,6 @@ def z_score_conn(conn_mat:np.ndarray, direction='none')->np.ndarray:
             row_std = np.nanstd(conn_mat, axis =1).reshape(d,1)
             diff = np.subtract(conn_mat, row_mean)
             return np.divide(diff, row_std)
+        
+def chunker(seq, size):
+    return (seq[pos:pos + size] for pos in range(0, len(seq), size))
