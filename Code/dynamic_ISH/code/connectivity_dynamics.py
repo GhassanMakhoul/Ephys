@@ -8,7 +8,7 @@ import pdb
 from multiprocessing import Pool
 
 
-from collections import Counter
+from collections import Counter, defaultdict
 import pandas as pd
 import numpy as np
 import mne
@@ -56,6 +56,16 @@ def get_pat_conn_labels(pat_df, regions, subj_id):
     pat_conn_labels = np.array([bip_dict[b] for b in regions])
     return pat_conn_labels
 
+def get_node_labels(conn_obj):
+    """returns the designation of each node in the connectivity matrix, 
+    PZ, SOZ, NIZ, etc on a per seizure basis
+
+    Args:
+        conn_obj (_type_): 
+    """
+    soz_designation = read_conn_struct(conn_obj, 'pdc','soz_per_seizure')
+    return [map_label(ch) for ch in soz_designation]
+
 def get_reg_inds(pat_conn_labels):
     soz_inds = np.where(pat_conn_labels == 'SOZ')[0]
     pz_inds = np.where(pat_conn_labels == 'PZ')[0]
@@ -64,7 +74,31 @@ def get_reg_inds(pat_conn_labels):
     nz_inds = np.where(np.logical_or(nz_bool, iz_bool))[0]
     return {'soz':soz_inds, 'pz' : pz_inds, 'nz': nz_inds}
 
-def get_conn_dict(conn_obj,key='pdc', periods=PERIOD, filt_dist=0,**kwargs):
+
+
+def get_conn_dict_full(conn_obj,key='pdc', filt_dist=0,**kwargs):
+    """Reads the patient seizure struct and returns a connectivity dictionary with keys
+    as the window and the values as the connectivity matrix
+
+    Args:
+        conn_obj (_type_): matlab struct read in as dictionary 
+        key (str, optional): key for reading struct (somewhat depends on how it was saved). Defaults to 'pdc'.
+        filt_dist (int, optional): _description_. Defaults to 0.
+
+    Returns:
+        _type_: dictionary of win_number -> PDC_matrix, note that window state is not tracked here and should be
+        mapped elsewhere 
+    """
+    #TODO fix final keys
+    pdc_all_windowed = read_conn_struct(conn_obj, key, 'PDC_all_windowed') #returns a 6 x N_win x N_ch x N_ch
+
+    if filt_dist > 0:
+        dist_mat = read_conn_struct(conn_obj, 'pdc', 'dist_mat')
+        pdc_all_windowed = filter_dist(pdc_all_windowed, dist_mat, 20)
+    n_win = pdc_all_windowed.shape[1]
+    return dict(zip([i for i in range(n_win)],[pdc_all_windowed[:,i,:,:] for i in range(n_win) ] ))
+
+def get_conn_dict_summary(conn_obj,key='pdc', periods=PERIOD, filt_dist=0,**kwargs):
     #TODO fix final keys
     inter_conn = read_conn_struct(conn_obj, key,'PDC_interictal')
     pre_conn = read_conn_struct(conn_obj, key, 'PDC_pre')
@@ -98,6 +132,10 @@ def filter_dist(conn_mat:np.ndarray, dist_mat:np.ndarray, filt_dist:float)-> np.
         np.ndarray: filtered connectivity matrix    
     """
     d_x, d_y= np.where(dist_mat < filt_dist)
+    if len(conn_mat.shape) == 4:
+        assert conn_mat.shape[-1] == conn_mat.shape[-2], "weird shape order check conn matrix!"
+        conn_mat[:,:, d_x, d_y] = np.nan
+        return conn_mat
     if len(conn_mat.shape) == 3:
         assert conn_mat.shape[1] > conn_mat.shape[0], "Weird shape order, check connectivity matrix!"
         conn_mat[:, d_x, d_y] = np.nan
@@ -105,7 +143,7 @@ def filter_dist(conn_mat:np.ndarray, dist_mat:np.ndarray, filt_dist:float)-> np.
     conn_mat[d_x, d_y] = np.nan
     return conn_mat
 
-def assemble_net_conn(subj_id, pdc_dict,soz_inds,pz_inds,nz_inds,bands=BANDS):
+def assemble_net_conn(subj_id, pdc_dict,soz_inds,pz_inds,nz_inds,bands=BANDS,period_meta=defaultdict(lambda :'')):
     """Assemble net directed connectivity across periods of interest for all 
     frequency bands
 
@@ -119,35 +157,39 @@ def assemble_net_conn(subj_id, pdc_dict,soz_inds,pz_inds,nz_inds,bands=BANDS):
     Returns:
         _type_: Dataframe of next connectivity for each region.
     """
-    net_df = pd.DataFrame(columns=['subj', 'period', 'region', 'net_pdc', 'freq_band'])
+
+    cols = ['subj', 'period', 'region', 'net_pdc', 'in_pdc', 'out_pdc', 'freq_band', 'window_designations']
+    
+    net_df = pd.DataFrame(columns=cols)
     ind = 0 
     for period, pdc in pdc_dict.items():
+        period_designations = period_meta[period]
         for b in range(len(bands)):
             z_pdc_in = z_score_conn(pdc[b, :,:],direction='col')
             z_pdc_out = z_score_conn(pdc[b,:,:], direction='row')
 
             band = bands[b]
-            soz_in = z_pdc_out[:,soz_inds]
-            soz_out = z_pdc_in[soz_inds,:]
-            net_soz = np.nanmean(soz_in) - np.nanmean(soz_out)
-            net_df.loc[ind] = [subj_id,period,'soz',net_soz,band]
+            soz_in = np.nanmean(z_pdc_out[:,soz_inds])
+            soz_out = np.nanmean(z_pdc_in[soz_inds,:])
+            net_soz = soz_in - soz_out
+            net_df.loc[ind] = [subj_id,period,'soz',net_soz,soz_in, soz_out, band,period_designations]
             ind += 1
 
-            pz_in = z_pdc_out[:,pz_inds]
-            pz_out = z_pdc_in[pz_inds,:]
-            net_pz = np.nanmean(pz_in) - np.nanmean(pz_out)
-            net_df.loc[ind] = [subj_id,period,'pz',net_pz,band]
+            pz_in = np.nanmean(z_pdc_out[:,pz_inds])
+            pz_out = np.nanmean(z_pdc_in[pz_inds,:])
+            net_pz = pz_in - pz_out
+            net_df.loc[ind] = [subj_id,period,'pz',net_pz,pz_in, pz_out, band, period_designations]
             ind +=1
 
 
-            nz_in = z_pdc_out[:,nz_inds]
-            nz_out = z_pdc_in[nz_inds,:]
-            net_nz = np.nanmean(nz_in) - np.nanmean(nz_out)
-            net_df.loc[ind] = [subj_id,period,'nz',net_nz,band]
+            nz_in = np.nanmean(z_pdc_out[:,nz_inds])
+            nz_out = np.nanmean(z_pdc_in[nz_inds,:])
+            net_nz = nz_in - nz_out
+            net_df.loc[ind] = [subj_id,period,'nz',net_nz,nz_in, nz_out, band, period_designations]
             ind +=1
     return net_df    
 
-def assemble_file(subj_id: str, conn_f: str, label_df: pd.DataFrame, **kwargs)->pd.DataFrame:
+def assemble_obj(subj_id: str, conn_obj, wintype='full' ,**kwargs)->pd.DataFrame:
     """For a given subject's connectivity struct, return the dataframe containing net
     connectivity for each frequency band, over relevant periods
     NOTE: this will only work with DIRECTED connecitivity
@@ -162,25 +204,43 @@ def assemble_file(subj_id: str, conn_f: str, label_df: pd.DataFrame, **kwargs)->
     """
 
     
-    conn_obj = load_mat(conn_f)
-    
-    conn_dict, label_inds = prep_conn(subj_id, label_df, conn_obj, **kwargs)
+    # conn_obj = load_mat(conn_f) # preload for fast performance
+    conn_dict, label_inds = prep_conn(subj_id, conn_obj, wintype, **kwargs)
     soz_inds, pz_inds, nz_inds = label_inds['soz'], label_inds['pz'], label_inds['nz']
+    if wintype == 'full':
+        window_dict = prep_window_dict(conn_obj)
+        return assemble_net_conn(subj_id, conn_dict, soz_inds, pz_inds,nz_inds,period_meta=window_dict)
     return assemble_net_conn(subj_id, conn_dict, soz_inds, pz_inds,nz_inds)
 
-def prep_conn(subj_id, label_df, conn_obj, **kwargs):
+def prep_window_dict(conn_obj):
+    w_end = read_conn_struct(conn_obj, 'pdc', 'window_end_state')
+    w_start = read_conn_struct(conn_obj, 'pdc', 'window_start_state')
+    w_mid = read_conn_struct(conn_obj, 'pdc' ,'window_middle_state')
+    num_win = read_conn_struct(conn_obj, 'pdc','')
+    keys = [i for i in range(len(num_win))]
+    designations = [ f"{w_start[i]}_{w_mid[i]}_{w_end[i]}" for i in range(len(num_win))] 
+    return dict(zip(keys, designations))
+
+def prep_conn( conn_obj, wintype='full', **kwargs):
     if conn_obj == None:
         raise ValueError("Issue with load_mat")
-    conn_dict = get_conn_dict(conn_obj, **kwargs)
-    pat_conn_labels = get_regions(label_df, conn_obj,subj_id)
+    if wintype =='full':
+        conn_dict = get_conn_dict_full(conn_obj, **kwargs)
+    else:
+        conn_dict = get_conn_dict_summary(conn_obj, **kwargs)
+    pat_conn_labels = get_regions(conn_obj)
     label_inds = get_reg_inds(pat_conn_labels)
     return conn_dict, label_inds
 
-def get_regions(label_df, conn_obj, subj_id):
+
+
+
+def get_regions( conn_obj):
     regions = [reg[0] for reg in read_conn_struct(conn_obj, 'pdc', 'bip_labels_used')]
     
-    regions = format_bipoles(regions)
-    pat_conn_labels = get_pat_conn_labels(label_df, regions,subj_id)
+    # regions = format_bipoles(regions)
+    # pat_conn_labels = get_pat_conn_labels(label_df, regions,subj_id)
+    pat_conn_labels = get_node_labels(conn_obj)
     return pat_conn_labels
 
 def agg_patient(subj_id, conn_folder, label_df, **kwargs) -> pd.DataFrame:
