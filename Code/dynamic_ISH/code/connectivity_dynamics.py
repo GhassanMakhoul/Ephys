@@ -1,11 +1,13 @@
 import logging
 import os
+import sys
 import re
 from scipy.io import loadmat
 import mat73
 import glob
 import pdb
 from multiprocessing import Pool
+import getopt
 
 
 from collections import Counter, defaultdict
@@ -67,6 +69,8 @@ def get_node_labels(conn_obj):
     return [map_label(ch) for ch in soz_designation]
 
 def get_reg_inds(pat_conn_labels):
+    if type(pat_conn_labels) != np.ndarray:
+        pat_conn_labels = np.array(pat_conn_labels)
     soz_inds = np.where(pat_conn_labels == 'SOZ')[0]
     pz_inds = np.where(pat_conn_labels == 'PZ')[0]
     nz_bool = pat_conn_labels == 'NIZ'
@@ -169,6 +173,7 @@ def assemble_net_conn(subj_id, pdc_dict,soz_inds,pz_inds,nz_inds,bands=BANDS,per
             z_pdc_out = z_score_conn(pdc[b,:,:], direction='row')
 
             band = bands[b]
+            
             soz_in = np.nanmean(z_pdc_out[:,soz_inds])
             soz_out = np.nanmean(z_pdc_in[soz_inds,:])
             net_soz = soz_in - soz_out
@@ -205,7 +210,7 @@ def assemble_obj(subj_id: str, conn_obj, wintype='full' ,**kwargs)->pd.DataFrame
 
     
     # conn_obj = load_mat(conn_f) # preload for fast performance
-    conn_dict, label_inds = prep_conn(subj_id, conn_obj, wintype, **kwargs)
+    conn_dict, label_inds = prep_conn(conn_obj, wintype, **kwargs)
     soz_inds, pz_inds, nz_inds = label_inds['soz'], label_inds['pz'], label_inds['nz']
     if wintype == 'full':
         window_dict = prep_window_dict(conn_obj)
@@ -216,9 +221,9 @@ def prep_window_dict(conn_obj):
     w_end = read_conn_struct(conn_obj, 'pdc', 'window_end_state')
     w_start = read_conn_struct(conn_obj, 'pdc', 'window_start_state')
     w_mid = read_conn_struct(conn_obj, 'pdc' ,'window_middle_state')
-    num_win = read_conn_struct(conn_obj, 'pdc','')
-    keys = [i for i in range(len(num_win))]
-    designations = [ f"{w_start[i]}_{w_mid[i]}_{w_end[i]}" for i in range(len(num_win))] 
+    num_win = len(w_mid)
+    keys = [i for i in range(num_win)]
+    designations = [ f"{w_start[i]}_{w_mid[i]}_{w_end[i]}" for i in range(num_win)] 
     return dict(zip(keys, designations))
 
 def prep_conn( conn_obj, wintype='full', **kwargs):
@@ -228,11 +233,9 @@ def prep_conn( conn_obj, wintype='full', **kwargs):
         conn_dict = get_conn_dict_full(conn_obj, **kwargs)
     else:
         conn_dict = get_conn_dict_summary(conn_obj, **kwargs)
-    pat_conn_labels = get_regions(conn_obj)
+    pat_conn_labels = get_node_labels(conn_obj)
     label_inds = get_reg_inds(pat_conn_labels)
     return conn_dict, label_inds
-
-
 
 
 def get_regions( conn_obj):
@@ -240,7 +243,7 @@ def get_regions( conn_obj):
     
     # regions = format_bipoles(regions)
     # pat_conn_labels = get_pat_conn_labels(label_df, regions,subj_id)
-    pat_conn_labels = get_node_labels(conn_obj)
+    pat_conn_labels = get_reg_inds(regions)
     return pat_conn_labels
 
 def agg_patient(subj_id, conn_folder, label_df, **kwargs) -> pd.DataFrame:
@@ -444,3 +447,31 @@ def map_cohort_to_flow(subj_ids, folders,label_df,**kwargs):
         df  = map_subject_to_flow(subj, sub_files, sub_label_df, **kwargs)
         flow_df.append(df)
     return pd.concat(flow_df)
+
+def get_conn_dfs(datadir, pathout):
+    from tqdm import tqdm
+    return None
+
+
+def main(argv):
+    opts, _ = getopt.getopt(argv,"d:p:c:",["datadir=",'pathout=','config='])
+    for opt, arg in opts:
+        if opt in ("-d", 'datadir'):
+            datadir = arg
+        elif opt in ('-p', '--pathout'):
+            pathout = arg
+        elif opt in ("-c", '--config'):
+            config_f = arg
+    #TODO use yamls and configs
+    # with open(config_f, 'r') as f:
+    #     config =  yaml.safe_load(f)
+    # conn_df = gen_conn_dfs(datadir, pathout)
+    paths = glob.glob(os.path.join(datadir, "*mat"))
+    # import pdb
+    # pdb.set_trace()
+    conn_obj =  load_mat(paths[0])
+    conn_df = assemble_obj("Epat02", conn_obj)
+    conn_df.to_csv(os.path.join(pathout, "peri_ictal_network.csv"),index=False)
+
+if __name__ == "__main__":
+    main(sys.argv[1:])
