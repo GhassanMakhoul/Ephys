@@ -1,7 +1,6 @@
 import logging
 import os
 import sys
-import re
 from scipy.io import loadmat
 import mat73
 import glob
@@ -13,7 +12,7 @@ import getopt
 from collections import Counter, defaultdict
 import pandas as pd
 import numpy as np
-import mne
+
 
 import seaborn as sns
 import matplotlib.pyplot as plt
@@ -31,8 +30,10 @@ BANDS = ['delta', 'theta', 'alpha', 'beta','gamma_l', 'gamma_H']
 PERIOD = ['inter','pre','ictal','post']
 
 #configure logging
-logger = logging.getLogger(__name__)
+deflogger= logging.getLogger(__name__)
 logging.basicConfig(filename='../logs/conn_dyn.log', level=logging.WARNING)
+from loguru import logger
+
 def load_mat(f):
     try:
         return loadmat(f)
@@ -147,7 +148,8 @@ def filter_dist(conn_mat:np.ndarray, dist_mat:np.ndarray, filt_dist:float)-> np.
     conn_mat[d_x, d_y] = np.nan
     return conn_mat
 
-def assemble_net_conn(subj_id, pdc_dict,soz_inds,pz_inds,nz_inds,bands=BANDS,period_meta=defaultdict(lambda :'')):
+@logger.catch
+def assemble_net_conn( pdc_dict,soz_inds,pz_inds,nz_inds,bands=BANDS,period_meta=defaultdict(lambda :'')):
     """Assemble net directed connectivity across periods of interest for all 
     frequency bands
 
@@ -162,7 +164,7 @@ def assemble_net_conn(subj_id, pdc_dict,soz_inds,pz_inds,nz_inds,bands=BANDS,per
         _type_: Dataframe of next connectivity for each region.
     """
 
-    cols = ['subj', 'period', 'region', 'net_pdc', 'in_pdc', 'out_pdc', 'freq_band', 'window_designations']
+    cols = ['period', 'region', 'net_pdc', 'in_pdc', 'out_pdc', 'freq_band', 'window_designations']
     
     net_df = pd.DataFrame(columns=cols)
     ind = 0 
@@ -177,30 +179,29 @@ def assemble_net_conn(subj_id, pdc_dict,soz_inds,pz_inds,nz_inds,bands=BANDS,per
             soz_in = np.nanmean(z_pdc_out[:,soz_inds])
             soz_out = np.nanmean(z_pdc_in[soz_inds,:])
             net_soz = soz_in - soz_out
-            net_df.loc[ind] = [subj_id,period,'soz',net_soz,soz_in, soz_out, band,period_designations]
+            net_df.loc[ind] = [period,'soz',net_soz,soz_in, soz_out, band,period_designations]
             ind += 1
 
             pz_in = np.nanmean(z_pdc_out[:,pz_inds])
             pz_out = np.nanmean(z_pdc_in[pz_inds,:])
             net_pz = pz_in - pz_out
-            net_df.loc[ind] = [subj_id,period,'pz',net_pz,pz_in, pz_out, band, period_designations]
+            net_df.loc[ind] = [period,'pz',net_pz,pz_in, pz_out, band, period_designations]
             ind +=1
 
 
             nz_in = np.nanmean(z_pdc_out[:,nz_inds])
             nz_out = np.nanmean(z_pdc_in[nz_inds,:])
             net_nz = nz_in - nz_out
-            net_df.loc[ind] = [subj_id,period,'nz',net_nz,nz_in, nz_out, band, period_designations]
+            net_df.loc[ind] = [period,'nz',net_nz,nz_in, nz_out, band, period_designations]
             ind +=1
     return net_df    
 
-def assemble_obj(subj_id: str, conn_obj, wintype='full' ,**kwargs)->pd.DataFrame:
+def assemble_obj( conn_obj, wintype='full' ,**kwargs)->pd.DataFrame:
     """For a given subject's connectivity struct, return the dataframe containing net
     connectivity for each frequency band, over relevant periods
     NOTE: this will only work with DIRECTED connecitivity
 
     Args:
-        subj_id (str): subject id ex Epat02
         conn_f (str): .mat struct with connectivity matrices
         label_df (df): df of channel labels -> {SOZ_inds,NZ_inds, PZ_inds}
 
@@ -214,8 +215,8 @@ def assemble_obj(subj_id: str, conn_obj, wintype='full' ,**kwargs)->pd.DataFrame
     soz_inds, pz_inds, nz_inds = label_inds['soz'], label_inds['pz'], label_inds['nz']
     if wintype == 'full':
         window_dict = prep_window_dict(conn_obj)
-        return assemble_net_conn(subj_id, conn_dict, soz_inds, pz_inds,nz_inds,period_meta=window_dict)
-    return assemble_net_conn(subj_id, conn_dict, soz_inds, pz_inds,nz_inds)
+        return assemble_net_conn( conn_dict, soz_inds, pz_inds,nz_inds,period_meta=window_dict)
+    return assemble_net_conn(conn_dict, soz_inds, pz_inds,nz_inds)
 
 def prep_window_dict(conn_obj):
     w_end = read_conn_struct(conn_obj, 'pdc', 'window_end_state')
@@ -341,8 +342,8 @@ def struct_to_pat_df(struct, sub_ids:list[str], filt_dist=0)->pd.DataFrame:
         pd.DataFrame: pdc connectivity net in out perf freq, per region
     """
     
-    logger = logging.getLogger(__name__)
-    logging.basicConfig(filename='conn_dyn.log')
+    # logger = logging.getLogger(__name__)
+    # logging.basicConfig(filename='conn_dyn.log')
     subj_dfs = []
     for i, pat_obj in enumerate(struct['pats'][0]):
         subj_id = sub_ids[i]
@@ -452,9 +453,17 @@ def get_conn_dfs(datadir, pathout):
     from tqdm import tqdm
     return None
 
+def assemble_peri_obj_para(sub_objects:list, sub_list, sz_list, cores =12):
+    """Assemble connectivity in parallelized fashion"""
+    p = Pool(cores)
+    dfs =  p.map(assemble_obj, sub_objects)
+    for i, df in enumerate(dfs):
+        df['subj'] = sub_list[i]
+        df['sz_type'] = sz_list[i]
+    return pd.concat(dfs)
 
 def main(argv):
-    opts, _ = getopt.getopt(argv,"d:p:c:",["datadir=",'pathout=','config='])
+    opts, _ = getopt.getopt(argv,"d:p:c:l:",["datadir=",'pathout=','config=','logdir='])
     for opt, arg in opts:
         if opt in ("-d", 'datadir'):
             datadir = arg
@@ -462,16 +471,37 @@ def main(argv):
             pathout = arg
         elif opt in ("-c", '--config'):
             config_f = arg
+        elif opt in ("-l", "--logdir"):
+            logdir = arg
     #TODO use yamls and configs
     # with open(config_f, 'r') as f:
     #     config =  yaml.safe_load(f)
     # conn_df = gen_conn_dfs(datadir, pathout)
     paths = glob.glob(os.path.join(datadir, "*mat"))
     # import pdb
-    # pdb.set_trace()
-    conn_obj =  load_mat(paths[0])
-    conn_df = assemble_obj("Epat02", conn_obj)
-    conn_df.to_csv(os.path.join(pathout, "peri_ictal_network.csv"),index=False)
+    # pdb.set_trace
+    logger.add(os.path.join(logdir, f"connectivity_dynamics_run.log"), enqueue=True,level=40)
+    num_cores = 20
+    count = 0
+    peri_dfs = []
+    #NOTE THIS assumes that the subject list is the same for all runs
+    for path_chunk in chunker(paths, num_cores):
+        structs = load_structs(path_chunk, num_cores)
+        incl_inds = [i for i in range(len(structs)) if structs[i] != None]
+        structs = [structs[i] for i in incl_inds]
 
+        sub_list = [sub_path.split("/")[-2] for sub_path in path_chunk]
+        sub_list = [sub_list[i] for i in incl_inds]
+         #NOTE: god this is messy. TODO: fix struct chars for ID and sztype
+        sz_list = [sub_path.split("/")[-1].split("_")[-2] for sub_path in path_chunk]
+        sz_list = [sz_list[i] for i in incl_inds]
+        conn_df = assemble_peri_obj_para(structs, sub_list, sz_list, num_cores)
+        peri_dfs.append(conn_df)
+        count += len(path_chunk)
+        logger.success(f"Finished  {count} seizures")
+    peri_dfs = pd.concat(peri_dfs)
+    peri_dfs.to_csv(os.path.join(pathout, f"peri_ictal_network_{sub_list[0]}.csv"),index=False)
+    logger.success(f"Saving {sub_list[0]} net periconnectivity in {pathout} as peri_ictal_network_{sub_list[0]}.csv ")
 if __name__ == "__main__":
-    main(sys.argv[1:])
+    with logger.catch():
+        main(sys.argv[1:])
