@@ -181,12 +181,12 @@ def assemble_net_conn( pdc_dict,soz_inds,pz_inds,nz_inds,bands=BANDS,period_meta
             net_soz = soz_in - soz_out
             net_df.loc[ind] = [period,'soz',net_soz,soz_in, soz_out, band,period_designations]
             ind += 1
-
-            pz_in = np.nanmean(z_pdc_out[:,pz_inds])
-            pz_out = np.nanmean(z_pdc_in[pz_inds,:])
-            net_pz = pz_in - pz_out
-            net_df.loc[ind] = [period,'pz',net_pz,pz_in, pz_out, band, period_designations]
-            ind +=1
+            if len(pz_inds) != 0:
+                pz_in = np.nanmean(z_pdc_out[:,pz_inds])
+                pz_out = np.nanmean(z_pdc_in[pz_inds,:])
+                net_pz = pz_in - pz_out
+                net_df.loc[ind] = [period,'pz',net_pz,pz_in, pz_out, band, period_designations]
+                ind +=1
 
 
             nz_in = np.nanmean(z_pdc_out[:,nz_inds])
@@ -215,8 +215,14 @@ def assemble_obj( conn_obj, wintype='full' ,**kwargs)->pd.DataFrame:
     soz_inds, pz_inds, nz_inds = label_inds['soz'], label_inds['pz'], label_inds['nz']
     if wintype == 'full':
         window_dict = prep_window_dict(conn_obj)
-        return assemble_net_conn( conn_dict, soz_inds, pz_inds,nz_inds,period_meta=window_dict)
-    return assemble_net_conn(conn_dict, soz_inds, pz_inds,nz_inds)
+        conn_df =  assemble_net_conn( conn_dict, soz_inds, pz_inds,nz_inds,period_meta=window_dict)
+    else:
+        conn_df = assemble_net_conn(conn_dict, soz_inds, pz_inds,nz_inds)
+
+    conn_df['eventID'] = read_conn_struct(conn_obj, 'pdc', 'eventID')
+    conn_df['patID'] = read_conn_struct(conn_obj, 'pdc', 'patID')
+    conn_df['sz_type'] = read_conn_struct(conn_obj, 'pdc', 'sz_type')
+    return conn_df
 
 def prep_window_dict(conn_obj):
     w_end = read_conn_struct(conn_obj, 'pdc', 'window_end_state')
@@ -453,14 +459,101 @@ def get_conn_dfs(datadir, pathout):
     from tqdm import tqdm
     return None
 
-def assemble_peri_obj_para(sub_objects:list, sub_list, sz_list, cores =12):
+def assemble_peri_obj_para(sub_objects:list, cores =12):
     """Assemble connectivity in parallelized fashion"""
     p = Pool(cores)
     dfs =  p.map(assemble_obj, sub_objects)
-    for i, df in enumerate(dfs):
-        df['subj'] = sub_list[i]
-        df['sz_type'] = sz_list[i]
+    
     return pd.concat(dfs)
+
+def center_transition(peri_df: pd.DataFrame, win_size = 5, center_designations=["0_0_1", "0_1_1"])->pd.DataFrame:
+    """Given a dataframe with each row matching net connectivity per period
+    and a string representation of the beginning_middle_end of each window designation, 
+    this method returns a modified dataframe with a "win_sz_centered" column that counts up to 
+    the seizure transistion. The new window counts will have transitions at zero. This
+    will allow you to align all peri-ictal dynamics according to the transition point of seizures
+    This method will also add a "period_label" column with the following labels
+    "Interictal, pre_ictal, transition_into_sz, ictal, transition out, post_ictal"
+
+    Pre_ictal will be the minute before a seizure and post_ictal will be the minute after, assuming
+    WIN_SIZE is in seconds
+
+    Args:
+        peri_df (pd.DataFrame): dataframe from assemble_obj subroutine. should have net/in/out connectivity
+        across all periods 
+        win_size (int) : length of window size in seconds
+        center_designations (list, optional): _description_. Defaults to ["0_0_1", "0_1_1"].
+
+    Returns:
+        pd.DataFrame: df of peri-ictal connectivity with period_count centered at 
+        the transition point into the ictal state
+    """
+    centered_dfs = []
+    for event in set(peri_df.eventID):
+        event_df = peri_df[peri_df.eventID == event]
+        event_df['win_sz_centered'] = center_windows(event_df.window_designation, event.period.values)
+        event_df['win_label'] = event_df.apply(label_window, args=(win_size))
+    ## loop over eventID
+
+    ## find transition period
+    ## label transition as zero 
+
+    #label period_label
+
+
+    return peri_df
+
+def label_window(df_row, win_size):
+    """Labels a row of the data frame using the window_designation column
+    and the win_sz_centerd column to assign states. 
+
+    Current logic:
+            Interictal - > 1 min prior to a seizure
+            Pre-ictal - 1 min prior to the seizure transition (uses win_sz_centered)
+            Early Ictal - all labels corresponding to 0_0_1 up through 0_1_1 that occur after 
+                        the designates transition (win_sz_centerd > 0)
+            Ictal - all periods with the 1_1_1 designation
+            Late ictal - all periods with 1_1_2 up to 1_2_2 
+            Early post-ictal - all periods with designation 2_2_2 occuring in first minute after end of seizure
+            Post ictal - all periods designated 2_2_2 after the minute mark of the sezure end
+
+    NOTE: in the future can further subdivide the ictal states
+    Args:
+        df_row (_type_): _description_
+        win_size (int) : length of window size in seconds, important for calculating pre- early post-ictal times
+    """
+
+    return 
+
+def center_windows(window_designations, periods, center_designations=["0_0_1", "0_1_1"])->np.ndarray:
+    """Returns an array of window counts with the 0th window
+    occuring at the transition. If non of the windows in CENTER_DESIGNATION are found, then method 
+    will default to defining the transition window as the first window containing 1's after a window of all "0_0_0"
+    NOTE: this method assumes only one "seizure" per series
+    Args:
+        window_designations (_type_): series of strings labelling the beginning_middle_end of a window.
+                                        0 -> before a seizure
+                                        1 - > during seizure
+                                        2 - > after seizure
+        periods : should track the period 
+        center_designations (list): defaults to 2 window types to center at. If the first window type is not available
+        will default to second.ljl
+    Returns:
+        np.ndarray: count of windows with zero marking the transition into the seizure state. THis is important for aligning across groups
+    """
+    transition = np.where(window_designations == center_designations[0])[0]
+    if len(transition) == 0 and len(center_designations) > 1:
+        while len(transition) ==0 and len(center_designations) > 0:
+            transition = np.where(window_designations == center_designations[1])[0]
+            center_designations = center_designations[1:]
+    assert len(transition) != 0, f"Check center_designation {center_designations} and df! No transitions found"
+
+
+    transition_ind = transition[0]
+    trans_period = periods[transition_ind]
+    centered_wins =periods =  trans_period
+    return centered_wins
+
 
 def main(argv):
     opts, _ = getopt.getopt(argv,"d:p:c:l:",["datadir=",'pathout=','config=','logdir='])
@@ -477,7 +570,7 @@ def main(argv):
     # with open(config_f, 'r') as f:
     #     config =  yaml.safe_load(f)
     # conn_df = gen_conn_dfs(datadir, pathout)
-    paths = glob.glob(os.path.join(datadir, "*mat"))
+    paths = glob.glob(os.path.join(datadir, "*PDC.mat"))
     # import pdb
     # pdb.set_trace
     logger.add(os.path.join(logdir, f"connectivity_dynamics_run.log"), enqueue=True,level=40)
@@ -490,18 +583,17 @@ def main(argv):
         incl_inds = [i for i in range(len(structs)) if structs[i] != None]
         structs = [structs[i] for i in incl_inds]
 
-        sub_list = [sub_path.split("/")[-2] for sub_path in path_chunk]
-        sub_list = [sub_list[i] for i in incl_inds]
-         #NOTE: god this is messy. TODO: fix struct chars for ID and sztype
-        sz_list = [sub_path.split("/")[-1].split("_")[-2] for sub_path in path_chunk]
-        sz_list = [sz_list[i] for i in incl_inds]
-        conn_df = assemble_peri_obj_para(structs, sub_list, sz_list, num_cores)
+        conn_df = assemble_peri_obj_para(structs, num_cores)
+        
         peri_dfs.append(conn_df)
         count += len(path_chunk)
         logger.success(f"Finished  {count} seizures")
+    
     peri_dfs = pd.concat(peri_dfs)
-    peri_dfs.to_csv(os.path.join(pathout, f"peri_ictal_network_{sub_list[0]}.csv"),index=False)
-    logger.success(f"Saving {sub_list[0]} net periconnectivity in {pathout} as peri_ictal_network_{sub_list[0]}.csv ")
+    subj = peri_dfs.patID.values[0]
+    assert len(set(peri_dfs.patID)) ==1, "mixing subjects, For now that's bad!"
+    peri_dfs.to_csv(os.path.join(pathout, f"peri_ictal_network_{subj}.csv"),index=False)
+    logger.success(f"Saving {subj} net periconnectivity in {pathout} as peri_ictal_network_{subj}.csv ")
 if __name__ == "__main__":
     with logger.catch():
         main(sys.argv[1:])
