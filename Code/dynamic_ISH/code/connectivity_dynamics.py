@@ -171,6 +171,7 @@ def assemble_net_conn( pdc_dict,soz_inds,pz_inds,nz_inds,bands=BANDS,period_meta
     for period, pdc in pdc_dict.items():
         period_designations = period_meta[period]
         for b in range(len(bands)):
+            #TODO add z_score to interictal period and LOCK the reference!
             z_pdc_in = z_score_conn(pdc[b, :,:],direction='col')
             z_pdc_out = z_score_conn(pdc[b,:,:], direction='row')
 
@@ -466,7 +467,7 @@ def assemble_peri_obj_para(sub_objects:list, cores =12):
     
     return pd.concat(dfs)
 
-def center_transition(peri_df: pd.DataFrame, win_size = 5, center_designations=["0_0_1", "0_1_1"])->pd.DataFrame:
+def center_transitions(peri_df: pd.DataFrame, win_size = 5, center_designations=["0_0_1", "0_1_1"])->pd.DataFrame:
     """Given a dataframe with each row matching net connectivity per period
     and a string representation of the beginning_middle_end of each window designation, 
     this method returns a modified dataframe with a "win_sz_centered" column that counts up to 
@@ -489,19 +490,34 @@ def center_transition(peri_df: pd.DataFrame, win_size = 5, center_designations=[
         the transition point into the ictal state
     """
     centered_dfs = []
-    for event in set(peri_df.eventID):
+    for event in set(peri_df.eventID): #NOTE: could this be a groupby apply?
         event_df = peri_df[peri_df.eventID == event]
-        event_df['win_sz_centered'] = center_windows(event_df.window_designation, event.period.values)
-        event_df['win_label'] = event_df.apply(label_window, args=(win_size))
-    ## loop over eventID
+        event_df['win_sz_centered'] = center_windows(event_df.window_designations, event_df.period.values)
+        event_df['sz_end'] = get_sz_end(event_df)
+        event_df['win_label'] = event_df.apply(label_window, args=[win_size], axis=1)
+        centered_dfs.append(event_df)
+    
+    return pd.concat(centered_dfs)
 
-    ## find transition period
-    ## label transition as zero 
+def get_sz_end(peri_df, use_col='win_sz_centered'):
+    """Given a calculated peri-ictal connectivity df, returns the period to reference 
+    as seizure termination
 
-    #label period_label
+    Args:
+        peri_df (pd.DataFrame): compiles ,peri_connectivity dataframe. Assumes only one event (seizure ) per df 
+        use_col (str) :  column to use as time column, may be centered based on seizure (win_sz_centered) or the 
+                        same period defined from original aggregation
+    Returns
+        sz_end time as int
+    """
+    assert len(set(peri_df.eventID)) == 1, "Can only pass one seizure per call to get_sz_end!"
+    assert use_col in peri_df.columns, f"column used to index time is not in df! {use_col}"
+    assert "window_designations" in peri_df.columns, "Unable to track seizure state without window designations!"
 
+    sz_end = np.where("2.0_2.0_2.0" == peri_df.window_designations)[0]
+    sz_end = sz_end[0]
+    return peri_df[use_col].values[sz_end]
 
-    return peri_df
 
 def label_window(df_row, win_size):
     """Labels a row of the data frame using the window_designation column
@@ -511,7 +527,7 @@ def label_window(df_row, win_size):
             Interictal - > 1 min prior to a seizure
             Pre-ictal - 1 min prior to the seizure transition (uses win_sz_centered)
             Early Ictal - all labels corresponding to 0_0_1 up through 0_1_1 that occur after 
-                        the designates transition (win_sz_centerd > 0)
+                        the designated transition (win_sz_centerd > 0)
             Ictal - all periods with the 1_1_1 designation
             Late ictal - all periods with 1_1_2 up to 1_2_2 
             Early post-ictal - all periods with designation 2_2_2 occuring in first minute after end of seizure
@@ -521,11 +537,33 @@ def label_window(df_row, win_size):
     Args:
         df_row (_type_): _description_
         win_size (int) : length of window size in seconds, important for calculating pre- early post-ictal times
+        sz_end (int) : period where seizure ends 
+            
     """
-
+    win_designation =    df_row['window_designations']
+    centered_period = df_row['win_sz_centered']
+    sz_end = df_row['sz_end']
+    match win_designation:
+        case "0.0_0.0_0.0":
+            if centered_period * win_size < -60:
+                return "interictal"
+            return "pre_ictal"
+        case "0.0_0.0_1.0" | "0.0_1.0_1.0":
+            if centered_period >=0:
+                return "early_ictal"
+            return "pre_ictal"
+        case "1.0_1.0_1.0": 
+            return "ictal"
+        case "1.0_1.0_2.0" | "1.0_2.0_2.0":
+            return "late_ictal"
+        case "2.0_2.0_2.0":
+            #NOTE: magic number at 60, in future make early post ictal period designation more modular
+            if (centered_period - sz_end)* win_size <= 60:
+                return "early_post_ictal" 
+            return "post_ictal"
     return 
 
-def center_windows(window_designations, periods, center_designations=["0_0_1", "0_1_1"])->np.ndarray:
+def center_windows(window_designations, periods, center_designations=["0.0_0.0_1.0", "0.0_1.0_1.0"])->np.ndarray:
     """Returns an array of window counts with the 0th window
     occuring at the transition. If non of the windows in CENTER_DESIGNATION are found, then method 
     will default to defining the transition window as the first window containing 1's after a window of all "0_0_0"
@@ -551,7 +589,7 @@ def center_windows(window_designations, periods, center_designations=["0_0_1", "
 
     transition_ind = transition[0]
     trans_period = periods[transition_ind]
-    centered_wins =periods =  trans_period
+    centered_wins =periods - trans_period
     return centered_wins
 
 

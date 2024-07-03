@@ -118,7 +118,7 @@ def save_pdc_to_h5(h5f, subj_id, tissue_labels, contact_labels, pdc_mats):
             dset = pdc_group.require_dataset(k, v.shape, float)
             dset[:] = v
 
-def z_score_conn(conn_mat:np.ndarray, direction='none')->np.ndarray:
+def z_score_conn(conn_mat:np.ndarray, direction='none', mu=None, std=None)->np.ndarray:
     """Z scores connectivity matrices, can handle directed, or non directed
     Zscoring directed connectivity matrices requires specifying the DIRECTION parameter.
     Z scoring along the column ('col') will z-score inward connections. Z scoring the rows
@@ -144,23 +144,27 @@ def z_score_conn(conn_mat:np.ndarray, direction='none')->np.ndarray:
     Args:
         conn_mat (np.ndarray): symmetric connectivity matrix
         direction (str, optional): determine direction of z_score. options: 'col', 'row', 'none' Defaults to 'None'.
-
+        mu (int, optional): pre_specified mean value to z-score against, often used if comparing to a known baseline, like the interictal period Defaults to None.
+        std (int, optional): option to pre-specify standard deviation to z-score current connectivity matrix against. Often used when known baseline to compare to such as the intericta
+                            period Defaults to None.
     Returns:
-        np.ndarray: _description_
+        np.ndarray: z_scored connectivity matrix
     """
     d, _ = conn_mat.shape
     match direction:
         case 'none':
-            (conn_mat - np.nanmean(conn_mat)) / np.nanstd(conn_mat)
+            mu_mat =mu if mu !=None else np.nanmean(conn_mat)
+            std_mat = std if std != None else np.nanstd(conn_mat) 
+            (conn_mat -  mu_mat)/ std_mat
         case 'col':
-            col_mean = np.nanmean(conn_mat, axis=0).reshape(1,d)
-            col_std = np.nanstd(conn_mat, axis=0).reshape(1,d)
+            col_mean = mu if mu != None else np.nanmean(conn_mat, axis=0).reshape(1,d)
+            col_std = std if std != None else np.nanstd(conn_mat, axis=0).reshape(1,d)
             diff = np.subtract(conn_mat, col_mean)
             return np.divide(diff, col_std)
         
         case 'row':
-            row_mean = np.nanmean(conn_mat, axis =1).reshape(d,1)
-            row_std = np.nanstd(conn_mat, axis =1).reshape(d,1)
+            row_mean = mu if mu != None else  np.nanmean(conn_mat, axis =1).reshape(d,1)
+            row_std =  std if std != None else np.nanstd(conn_mat, axis =1).reshape(d,1)
             diff = np.subtract(conn_mat, row_mean)
             return np.divide(diff, row_std)
         
