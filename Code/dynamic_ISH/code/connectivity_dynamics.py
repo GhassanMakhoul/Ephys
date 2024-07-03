@@ -214,8 +214,15 @@ def assemble_obj( conn_obj, wintype='full' ,**kwargs)->pd.DataFrame:
     # conn_obj = load_mat(conn_f) # preload for fast performance
     conn_dict, label_inds = prep_conn(conn_obj, wintype, **kwargs)
     soz_inds, pz_inds, nz_inds = label_inds['soz'], label_inds['pz'], label_inds['nz']
+
+    #get mu and std to Z-score against interictal period
+    
     if wintype == 'full':
         window_dict = prep_window_dict(conn_obj)
+        buffer = kwargs['buffer'] if 'buffer' in kwargs.keys() else 60
+        win_size = kwargs['win_size'] if "win_size" in kwargs.keys() else 5
+
+        mu, std = score_period(conn_obj, window_dict, agg_win="interictal", buffer= buffer, win_size=win_size)
         conn_df =  assemble_net_conn( conn_dict, soz_inds, pz_inds,nz_inds,period_meta=window_dict)
     else:
         conn_df = assemble_net_conn(conn_dict, soz_inds, pz_inds,nz_inds)
@@ -224,6 +231,17 @@ def assemble_obj( conn_obj, wintype='full' ,**kwargs)->pd.DataFrame:
     conn_df['patID'] = read_conn_struct(conn_obj, 'pdc', 'patID')
     conn_df['sz_type'] = read_conn_struct(conn_obj, 'pdc', 'sz_type')
     return conn_df
+
+def score_period(conn_obj, window_dict, agg_win="interictal", buffer=60, win_size=5, directed=True):
+    conn_mats = filter_periods(conn_obj, window_dict, agg_win, buffer, win_size)
+    if not directed:
+        return np.mean(np.array(conn_mat)) np.nanmean(conn_mat)
+    else:
+        return None
+
+def filter_periods(conn_obj, window_dict, agg_win, buffer, win_size):
+
+    return None    
 
 def prep_window_dict(conn_obj):
     w_end = read_conn_struct(conn_obj, 'pdc', 'window_end_state')
@@ -579,18 +597,35 @@ def center_windows(window_designations, periods, center_designations=["0.0_0.0_1
     Returns:
         np.ndarray: count of windows with zero marking the transition into the seizure state. THis is important for aligning across groups
     """
-    transition = np.where(window_designations == center_designations[0])[0]
-    if len(transition) == 0 and len(center_designations) > 1:
-        while len(transition) ==0 and len(center_designations) > 0:
-            transition = np.where(window_designations == center_designations[1])[0]
-            center_designations = center_designations[1:]
-    assert len(transition) != 0, f"Check center_designation {center_designations} and df! No transitions found"
+    transition = find_transition(window_designations, center_designations)
 
 
     transition_ind = transition[0]
     trans_period = periods[transition_ind]
     centered_wins =periods - trans_period
     return centered_wins
+
+def find_transition(window_designations, center_designations):
+    """finds the point in an ORDERED series of windows where window designation changes 
+    from one state to another. For example most commonly used to find the end of the interictal period
+    to the beginning of the ictal period
+
+    Args:
+        window_designations (_type_): ordered list of string designations that correspond to the state of the recording. 
+            often a 3 element string with the first designating window start, mid-window, and third is end 
+            of window label                        
+        center_designations (_type_): transition window
+
+    Returns:
+        int : index where window types change
+    """
+    transition = np.where(window_designations == center_designations[0])[0]
+    if len(transition) == 0 and len(center_designations) > 1:
+        while len(transition) ==0 and len(center_designations) > 0:
+            transition = np.where(window_designations == center_designations[1])[0]
+            center_designations = center_designations[1:]
+    assert len(transition) != 0, f"Check center_designation {center_designations} and df! No transitions found"
+    return transition
 
 
 def main(argv):
