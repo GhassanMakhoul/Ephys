@@ -17,4 +17,4 @@ while read -r subj; do
        /usr/local/MATLAB/R2024a/bin/matlab -nodisplay -nosplash -nodesktop -r "structconvert('$f_path', '$OUT_DIR/$subj/$f_name')"
        echo Saved to: $OUT_DIR/$subj/$f_name
     done
-done < "$SUB_LIST"
+done < "$SUB_LIST"  

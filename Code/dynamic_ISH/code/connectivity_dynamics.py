@@ -149,7 +149,7 @@ def filter_dist(conn_mat:np.ndarray, dist_mat:np.ndarray, filt_dist:float)-> np.
     return conn_mat
 
 @logger.catch
-def assemble_net_conn( pdc_dict,soz_inds,pz_inds,nz_inds,bands=BANDS,period_meta=defaultdict(lambda :'')):
+def assemble_net_conn( pdc_dict,soz_inds,pz_inds,nz_inds,bands=BANDS,ref_stat=defaultdict(lambda: None),period_meta=defaultdict(lambda :'')):
     """Assemble net directed connectivity across periods of interest for all 
     frequency bands
 
@@ -172,8 +172,10 @@ def assemble_net_conn( pdc_dict,soz_inds,pz_inds,nz_inds,bands=BANDS,period_meta
         period_designations = period_meta[period]
         for b in range(len(bands)):
             #TODO add z_score to interictal period and LOCK the reference!
-            z_pdc_in = z_score_conn(pdc[b, :,:],direction='col')
-            z_pdc_out = z_score_conn(pdc[b,:,:], direction='row')
+            mu_in, std_in = ref_stat['mu_in'],['std_in']
+            z_pdc_in = z_score_conn(pdc[b, :,:],mu=mu_in[b],std=std_in[b],direction='col')
+            mu_out, std_out = ref_stat['mu_out'],['std_out']
+            z_pdc_out = z_score_conn(pdc[b,:,:], mu=mu_out[b], std=std_out[b], direction='row')
 
             band = bands[b]
             
@@ -221,9 +223,8 @@ def assemble_obj( conn_obj, wintype='full' ,**kwargs)->pd.DataFrame:
         window_dict = prep_window_dict(conn_obj)
         buffer = kwargs['buffer'] if 'buffer' in kwargs.keys() else 60
         win_size = kwargs['win_size'] if "win_size" in kwargs.keys() else 5
-
-        mu, std = score_period(conn_obj, window_dict, agg_win="interictal", buffer= buffer, win_size=win_size)
-        conn_df =  assemble_net_conn( conn_dict, soz_inds, pz_inds,nz_inds,period_meta=window_dict)
+        ref_stats= score_period(conn_dict.values(), window_dict, agg_win="interictal", buffer= buffer, win_size=win_size)
+        conn_df =  assemble_net_conn( conn_dict, soz_inds, pz_inds,nz_inds,ref_stat=ref_stats, period_meta=window_dict)
     else:
         conn_df = assemble_net_conn(conn_dict, soz_inds, pz_inds,nz_inds)
 
@@ -232,16 +233,71 @@ def assemble_obj( conn_obj, wintype='full' ,**kwargs)->pd.DataFrame:
     conn_df['sz_type'] = read_conn_struct(conn_obj, 'pdc', 'sz_type')
     return conn_df
 
-def score_period(conn_obj, window_dict, agg_win="interictal", buffer=60, win_size=5, directed=True):
+def score_period(conn_obj, window_dict, agg_win="interictal", buffer=60, win_size=5, directed=True,bands=BANDS):
+    """
+    score a set of connectivity matrices, filtered by period criterion. 
+    Establishes the set of reference values to compare other periods against.
+    Often use interictal as baseline to get mu and std to see how other periods compare
+    conn_mats should be a list of connectivity matrices within a band.
+        Each matrix has shape BAND x N_ch x N_ch
+    Returns a dictionary of reference stats for each band of interest
+    #in = 'col'
+    """
     conn_mats = filter_periods(conn_obj, window_dict, agg_win, buffer, win_size)
+    conn_mats = np.array(conn_mats)
     if not directed:
-        return np.mean(np.array(conn_mat)) np.nanmean(conn_mat)
+        
+        means = [np.nanmean(conn_mats[:,b,:,:]) for b in bands]
+        stds = [np.nanstd(conn_mats[:,b,:,:]) for b in bands]
+        return {"mu": means,"std":stds}
     else:
-        return None
+        num_win, _, d,_ = conn_mats.shape
+        mean_in  =[]
+        mean_out = []
+        std_in = []
+        std_out = []
+        for b in bands:
+            mu_in = np.array([np.nanmean(conn_mats[i,b,:,:],axis=0) for i in range(num_win)])
+            mu_in = np.mean(mu_in, axis=0).reshape(1,d)
+            mean_in.append(mu_in)
 
-def filter_periods(conn_obj, window_dict, agg_win, buffer, win_size):
+            std_in = np.array([np.nanstd(conn_mats[i,b,:,:],axis=0) for i in range(num_win)])
+            std_in = np.std(std_in, axis=0).reshape(1,d)
+            std_in.append(std_in)
 
-    return None    
+
+            mu_out = np.array([np.nanmean(conn_mats[i,b,:,:],axis=1) for i in range(num_win)])
+            mu_out = np.mean(mu_out, axis=0).reshape(d,1)
+            mean_out.append(mu_out)
+
+            std_out = np.array([np.nanstd(conn_mats[i,b,:,:],axis=1) for i in range(num_win)])
+            std_out = np.std(std_out, axis=0).reshape(d,1)
+            std_out.append(std_out)
+
+        return {"mu_in":mean_in, "std_in":std_in, "mu_out":mean_out, "std_out": std_out}
+    
+
+def filter_periods(conn_mats, window_dict, agg_win, buffer, win_size):
+    """
+    filters through the window designations and returns only connectivity matrices
+    that belong to the specified AGG_WIN and are outside of the buffer period
+    between window transitions
+    NOTE: assumes that dictionary WINDOW_DICT is ordered as in, the periods go from
+    interictal -> ictal -> post-ictal
+    """
+    keys, designations = window_dict.items()
+    if agg_win == 'interictal':
+        transition_win = find_transition(designations, ['0.0_0.0_1.0', '0.0_1.0_1.0'])
+        num_buffer_win = buffer // win_size
+        filtered_wins = keys[0: transition_win-num_buffer_win]
+        return [conn_mats[k] for k in filtered_wins]
+
+    elif agg_win == 'postictal':
+        transition_win = find_transition(designations, ['1.0_1.0_2.0', '1.0_2.0_2.0'])
+        num_buffer_win = buffer // win_size
+        filtered_wins = keys[transition_win+num_buffer_win:]
+        return [conn_mats[k] for k in filtered_wins]    
+    return conn_mats    
 
 def prep_window_dict(conn_obj):
     w_end = read_conn_struct(conn_obj, 'pdc', 'window_end_state')
