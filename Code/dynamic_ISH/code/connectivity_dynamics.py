@@ -172,9 +172,9 @@ def assemble_net_conn( pdc_dict,soz_inds,pz_inds,nz_inds,bands=BANDS,ref_stat=de
         period_designations = period_meta[period]
         for b in range(len(bands)):
             #TODO add z_score to interictal period and LOCK the reference!
-            mu_in, std_in = ref_stat['mu_in'],['std_in']
+            mu_in, std_in = ref_stat['mu_in'], ref_stat['std_in']
             z_pdc_in = z_score_conn(pdc[b, :,:],mu=mu_in[b],std=std_in[b],direction='col')
-            mu_out, std_out = ref_stat['mu_out'],['std_out']
+            mu_out, std_out = ref_stat['mu_out'], ref_stat['std_out']
             z_pdc_out = z_score_conn(pdc[b,:,:], mu=mu_out[b], std=std_out[b], direction='row')
 
             band = bands[b]
@@ -223,7 +223,7 @@ def assemble_obj( conn_obj, wintype='full' ,**kwargs)->pd.DataFrame:
         window_dict = prep_window_dict(conn_obj)
         buffer = kwargs['buffer'] if 'buffer' in kwargs.keys() else 60
         win_size = kwargs['win_size'] if "win_size" in kwargs.keys() else 5
-        ref_stats= score_period(conn_dict.values(), window_dict, agg_win="interictal", buffer= buffer, win_size=win_size)
+        ref_stats= score_period(list(conn_dict.values()), window_dict, agg_win="interictal", buffer= buffer, win_size=win_size)
         conn_df =  assemble_net_conn( conn_dict, soz_inds, pz_inds,nz_inds,ref_stat=ref_stats, period_meta=window_dict)
     else:
         conn_df = assemble_net_conn(conn_dict, soz_inds, pz_inds,nz_inds)
@@ -233,7 +233,7 @@ def assemble_obj( conn_obj, wintype='full' ,**kwargs)->pd.DataFrame:
     conn_df['sz_type'] = read_conn_struct(conn_obj, 'pdc', 'sz_type')
     return conn_df
 
-def score_period(conn_obj, window_dict, agg_win="interictal", buffer=60, win_size=5, directed=True,bands=BANDS):
+def score_period(conn_mats, window_dict, agg_win="interictal", buffer=60, win_size=5, directed=True,bands=BANDS):
     """
     score a set of connectivity matrices, filtered by period criterion. 
     Establishes the set of reference values to compare other periods against.
@@ -243,7 +243,7 @@ def score_period(conn_obj, window_dict, agg_win="interictal", buffer=60, win_siz
     Returns a dictionary of reference stats for each band of interest
     #in = 'col'
     """
-    conn_mats = filter_periods(conn_obj, window_dict, agg_win, buffer, win_size)
+    conn_mats = filter_periods(conn_mats, window_dict, agg_win, buffer, win_size)
     conn_mats = np.array(conn_mats)
     if not directed:
         
@@ -256,23 +256,23 @@ def score_period(conn_obj, window_dict, agg_win="interictal", buffer=60, win_siz
         mean_out = []
         std_in = []
         std_out = []
-        for b in bands:
+        for b in range(len(bands)):
             mu_in = np.array([np.nanmean(conn_mats[i,b,:,:],axis=0) for i in range(num_win)])
             mu_in = np.mean(mu_in, axis=0).reshape(1,d)
             mean_in.append(mu_in)
 
-            std_in = np.array([np.nanstd(conn_mats[i,b,:,:],axis=0) for i in range(num_win)])
-            std_in = np.std(std_in, axis=0).reshape(1,d)
-            std_in.append(std_in)
+            sig_in = np.array([np.nanstd(conn_mats[i,b,:,:],axis=0) for i in range(num_win)])
+            sig_in = np.std(sig_in, axis=0).reshape(1,d)
+            std_in.append(sig_in)
 
 
             mu_out = np.array([np.nanmean(conn_mats[i,b,:,:],axis=1) for i in range(num_win)])
             mu_out = np.mean(mu_out, axis=0).reshape(d,1)
             mean_out.append(mu_out)
 
-            std_out = np.array([np.nanstd(conn_mats[i,b,:,:],axis=1) for i in range(num_win)])
-            std_out = np.std(std_out, axis=0).reshape(d,1)
-            std_out.append(std_out)
+            sig_out = np.array([np.nanstd(conn_mats[i,b,:,:],axis=1) for i in range(num_win)])
+            sig_out = np.std(sig_out, axis=0).reshape(d,1)
+            std_out.append(sig_out)
 
         return {"mu_in":mean_in, "std_in":std_in, "mu_out":mean_out, "std_out": std_out}
     
@@ -285,10 +285,12 @@ def filter_periods(conn_mats, window_dict, agg_win, buffer, win_size):
     NOTE: assumes that dictionary WINDOW_DICT is ordered as in, the periods go from
     interictal -> ictal -> post-ictal
     """
-    keys, designations = window_dict.items()
+    keys = list(window_dict.keys())
+    designations = list(window_dict.values())
     if agg_win == 'interictal':
         transition_win = find_transition(designations, ['0.0_0.0_1.0', '0.0_1.0_1.0'])
         num_buffer_win = buffer // win_size
+
         filtered_wins = keys[0: transition_win-num_buffer_win]
         return [conn_mats[k] for k in filtered_wins]
 
@@ -675,12 +677,17 @@ def find_transition(window_designations, center_designations):
     Returns:
         int : index where window types change
     """
+    if type(window_designations) != np.ndarray:
+        window_designations = np.array([w for w in window_designations])
     transition = np.where(window_designations == center_designations[0])[0]
     if len(transition) == 0 and len(center_designations) > 1:
         while len(transition) ==0 and len(center_designations) > 0:
             transition = np.where(window_designations == center_designations[1])[0]
             center_designations = center_designations[1:]
     assert len(transition) != 0, f"Check center_designation {center_designations} and df! No transitions found"
+
+    if len(transition) > 1:
+        return transition[0]
     return transition
 
 
@@ -700,8 +707,7 @@ def main(argv):
     #     config =  yaml.safe_load(f)
     # conn_df = gen_conn_dfs(datadir, pathout)
     paths = glob.glob(os.path.join(datadir, "*PDC.mat"))
-    # import pdb
-    # pdb.set_trace
+    
     logger.add(os.path.join(logdir, f"connectivity_dynamics_run.log"), enqueue=True,level=40)
     num_cores = 20
     count = 0
@@ -711,13 +717,12 @@ def main(argv):
         structs = load_structs(path_chunk, num_cores)
         incl_inds = [i for i in range(len(structs)) if structs[i] != None]
         structs = [structs[i] for i in incl_inds]
-
+        # pdb.set_trace()
+        # conn_df = assemble_obj(structs[0])
         conn_df = assemble_peri_obj_para(structs, num_cores)
-        
         peri_dfs.append(conn_df)
         count += len(path_chunk)
         logger.success(f"Finished  {count} seizures")
-    
     peri_dfs = pd.concat(peri_dfs)
     subj = peri_dfs.patID.values[0]
     assert len(set(peri_dfs.patID)) ==1, "mixing subjects, For now that's bad!"

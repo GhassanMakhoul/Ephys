@@ -7,6 +7,7 @@ import mat73
 from scipy.io import loadmat as lm
 import re
 import h5py
+import pdb
 
 #data/stats
 import numpy as np
@@ -118,7 +119,7 @@ def save_pdc_to_h5(h5f, subj_id, tissue_labels, contact_labels, pdc_mats):
             dset = pdc_group.require_dataset(k, v.shape, float)
             dset[:] = v
 
-def z_score_conn(conn_mat:np.ndarray, direction='none', mu=None, std=None)->np.ndarray:
+def z_score_conn(conn_mat:np.ndarray, direction='none', mu=np.array([]), std=np.array([]))->np.ndarray:
     """Z scores connectivity matrices, can handle directed, or non directed
     Zscoring directed connectivity matrices requires specifying the DIRECTION parameter.
     Z scoring along the column ('col') will z-score inward connections. Z scoring the rows
@@ -144,8 +145,8 @@ def z_score_conn(conn_mat:np.ndarray, direction='none', mu=None, std=None)->np.n
     Args:
         conn_mat (np.ndarray): symmetric connectivity matrix
         direction (str, optional): determine direction of z_score. options: 'col', 'row', 'none' Defaults to 'None'.
-        mu (int, optional): pre_specified mean value to z-score against, often used if comparing to a known baseline, like the interictal period Defaults to None.
-        std (int, optional): option to pre-specify standard deviation to z-score current connectivity matrix against. Often used when known baseline to compare to such as the intericta
+        mu (np.ndarray, optional): pre_specified mean value to z-score against, often used if comparing to a known baseline, like the interictal period Defaults to None.
+        std (np.ndarray, optional): option to pre-specify standard deviation to z-score current connectivity matrix against. Often used when known baseline to compare to such as the intericta
                             period Defaults to None.
     Returns:
         np.ndarray: z_scored connectivity matrix
@@ -153,18 +154,18 @@ def z_score_conn(conn_mat:np.ndarray, direction='none', mu=None, std=None)->np.n
     d, _ = conn_mat.shape
     match direction:
         case 'none':
-            mu_mat =mu if mu !=None else np.nanmean(conn_mat)
-            std_mat = std if std != None else np.nanstd(conn_mat) 
+            mu_mat =mu if len(mu) > 0 else np.nanmean(conn_mat)
+            std_mat = std if len(std) > 0 else np.nanstd(conn_mat) 
             (conn_mat -  mu_mat)/ std_mat
         case 'col':
-            col_mean = mu if mu != None else np.nanmean(conn_mat, axis=0).reshape(1,d)
-            col_std = std if std != None else np.nanstd(conn_mat, axis=0).reshape(1,d)
+            col_mean = mu if len(mu) > 0  else np.nanmean(conn_mat, axis=0).reshape(1,d)
+            col_std = std if len(std) > 0  else np.nanstd(conn_mat, axis=0).reshape(1,d)
             diff = np.subtract(conn_mat, col_mean)
             return np.divide(diff, col_std)
         
         case 'row':
-            row_mean = mu if mu != None else  np.nanmean(conn_mat, axis =1).reshape(d,1)
-            row_std =  std if std != None else np.nanstd(conn_mat, axis =1).reshape(d,1)
+            row_mean = mu if len(mu) > 0 else  np.nanmean(conn_mat, axis =1).reshape(d,1)
+            row_std =  std if len(std) > 0 else np.nanstd(conn_mat, axis =1).reshape(d,1)
             diff = np.subtract(conn_mat, row_mean)
             return np.divide(diff, row_std)
         
