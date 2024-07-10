@@ -543,7 +543,7 @@ def assemble_peri_obj_para(sub_objects:list, cores =12):
     
     return pd.concat(dfs)
 
-def center_transitions(peri_df: pd.DataFrame, win_size = 5, center_designations=["0_0_1", "0_1_1"])->pd.DataFrame:
+def center_onset(peri_df: pd.DataFrame, win_size = 5, center_designations=["0_0_1", "0_1_1"])->pd.DataFrame:
     """Given a dataframe with each row matching net connectivity per period
     and a string representation of the beginning_middle_end of each window designation, 
     this method returns a modified dataframe with a "win_sz_centered" column that counts up to 
@@ -570,11 +570,51 @@ def center_transitions(peri_df: pd.DataFrame, win_size = 5, center_designations=
         event_df = peri_df[peri_df.eventID == event]
         event_df['win_sz_centered'] = center_windows(event_df.window_designations, event_df.period.values)
         event_df['sz_end'] = get_sz_end(event_df)
+        # event_df['win_sz_st_end'] = sample_seizures(event_df, start_buffer=10, end_buffer=10, mid_sz_length=10, win_size=5)
         event_df['win_label'] = event_df.apply(label_window, args=[win_size], axis=1)
         centered_dfs.append(event_df)
     
     return pd.concat(centered_dfs)
 
+def sample_seizures(peri_df, start_buffer=15, end_buffer=15, mid_sz_length=5, win_size=5):
+    """
+    Returns index tracking all windows with zero centered at seizure onset and all seizures
+    ending at the same time. Seizure window is determiend by length of start_buffer + end_buffer + mid_sz_length
+    Aligns all seizures in time while preserving transition windows into seizure 
+    (start_buffer) and windows out of seizure (end_buffer. Seizures that do not 
+    have the minumum number of windows for start and end will have np.nan values returned 
+    in their final window counts.
+
+    NOTE: buffers and mid_sz_length are in seconds and win_size is number of seconds per window
+    """
+    assert len(set(peri_df.eventID)) == 1, "Can only pass one seizure per call to get_sz_end!"
+    assert 'win_sz_centered' in peri_df.columns, "Need to center seizures on start before sampling seizure windows!"
+    assert "window_designations" in peri_df.columns, "Unable to track seizure state without window designations!"
+    assert "sz_end" in peri_df.columns, "need to find end of szr first!"
+
+    start_buffer =  start_buffer//win_size
+    end_buffer = end_buffer//win_size
+    mid_sz_length = mid_sz_length//win_size
+    sz_end = peri_df.sz_end.values[0]
+
+    #pull out all windows leading up to (or after) seizure and the transition windows that we will preserve
+    all_wins = set(peri_df.win_sz_centered)
+    pre_wins =set( peri_df[peri_df.win_sz_centered < start_buffer].win_sz_centered)
+    post_wins = set(peri_df[peri_df.win_sz_centered > sz_end-end_buffer])
+    mid_wins = np.array(list(all_wins - pre_wins - post_wins))
+
+    mid_sample = np.random.choice(mid_wins, mid_sz_length)
+    mid_sample.sort()
+
+    keep_wins = np.union1d(pre_wins, mid_sample )
+    keep_wins = np.union1d(keep_wins, post_wins)
+
+    #TODO: finish logic!
+
+    return None
+
+
+    
 def get_sz_end(peri_df, use_col='win_sz_centered'):
     """Given a calculated peri-ictal connectivity df, returns the period to reference 
     as seizure termination
@@ -655,10 +695,7 @@ def center_windows(window_designations, periods, center_designations=["0.0_0.0_1
     Returns:
         np.ndarray: count of windows with zero marking the transition into the seizure state. THis is important for aligning across groups
     """
-    transition = find_transition(window_designations, center_designations)
-
-
-    transition_ind = transition[0]
+    transition_ind= find_transition(window_designations, center_designations)
     trans_period = periods[transition_ind]
     centered_wins =periods - trans_period
     return centered_wins
