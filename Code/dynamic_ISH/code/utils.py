@@ -3,8 +3,8 @@
 import os
 from pathos.pools import ProcessPool
 import glob
+from scipy.io import loadmat
 import mat73
-from scipy.io import loadmat as lm
 import re
 import h5py
 import pdb
@@ -19,6 +19,19 @@ import pandas as pd
 BANDS = ['delta', 'theta','alpha', 'beta', 'gamma_low','gamma_high']
 DIR = '/mnt/ernie_main/000_Data/SEEG/SEEG_EyesClosed_RestingState/results/Graham_81pats/PDC_RestingState/'
 DTYPE = h5py.special_dtype(vlen=str)
+
+def load_mat(f):
+    """Loads structs and attmpts to use scipy's loadmat functionality or 
+    mat73. Some structs from older matlab work with scipy while others need mat73
+    """
+    try:
+        return loadmat(f)
+    except NotImplementedError:
+        try:
+            return mat73.loadmat(f)
+        except:
+            print(f"Problem Loading {f}")
+            return None
 
 def split_bipole(bip_df: pd.DataFrame):
     """splits the bipole column of a bipole df

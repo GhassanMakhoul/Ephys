@@ -12,6 +12,7 @@ import getopt
 from collections import Counter, defaultdict
 import pandas as pd
 import numpy as np
+import copy
 
 
 import seaborn as sns
@@ -290,13 +291,18 @@ def filter_periods(conn_mats, window_dict, agg_win, buffer, win_size):
     if agg_win == 'interictal':
         transition_win = find_transition(designations, ['0.0_0.0_1.0', '0.0_1.0_1.0'])
         num_buffer_win = buffer // win_size
-
+        if transition_win ==  -1:
+            logger.warning(f"Error Finding transition from interictal to ictal state, set of all window designations: {set(designations)}")
+            return conn_mats
         filtered_wins = keys[0: transition_win-num_buffer_win]
         return [conn_mats[k] for k in filtered_wins]
 
     elif agg_win == 'postictal':
         transition_win = find_transition(designations, ['1.0_1.0_2.0', '1.0_2.0_2.0'])
         num_buffer_win = buffer // win_size
+        if transition_win ==  -1:
+            logger.warning(f"Error Finding transition from ictal to post_ictal state, set of all window designations: {set(designations)}")
+            return conn_mats
         filtered_wins = keys[transition_win+num_buffer_win:]
         return [conn_mats[k] for k in filtered_wins]    
     return conn_mats    
@@ -543,7 +549,7 @@ def assemble_peri_obj_para(sub_objects:list, cores =12):
     
     return pd.concat(dfs)
 
-def center_onset(peri_df: pd.DataFrame, win_size = 5, center_designations=["0_0_1", "0_1_1"])->pd.DataFrame:
+def center_onset(peri_df: pd.DataFrame, win_size = 5, center_designations=["0.0_0.0_1.0", "0.0_1.0_1.0"])->pd.DataFrame:
     """Given a dataframe with each row matching net connectivity per period
     and a string representation of the beginning_middle_end of each window designation, 
     this method returns a modified dataframe with a "win_sz_centered" column that counts up to 
@@ -568,15 +574,20 @@ def center_onset(peri_df: pd.DataFrame, win_size = 5, center_designations=["0_0_
     centered_dfs = []
     for event in set(peri_df.eventID): #NOTE: could this be a groupby apply?
         event_df = peri_df[peri_df.eventID == event]
-        event_df['win_sz_centered'] = center_windows(event_df.window_designations, event_df.period.values)
-        event_df['sz_end'] = get_sz_end(event_df)
-        # event_df['win_sz_st_end'] = sample_seizures(event_df, start_buffer=10, end_buffer=10, mid_sz_length=10, win_size=5)
-        event_df['win_label'] = event_df.apply(label_window, args=[win_size], axis=1)
+        event_df['win_sz_centered'] = center_windows(event_df.window_designations, event_df.period.values,center_designations=center_designations)
+        if event_df.win_sz_centered.isna().all():
+            event_df['sz_end'] = np.nan
+            event_df['win_sz_st_end'] = np.nan
+            event_df['win_label'] = np.nan
+        else:
+            event_df['sz_end'] = get_sz_end(event_df)
+            event_df['win_sz_st_end'] = sample_seizures(event_df, start_buffer=10, end_buffer=10, mid_sz_length=10, win_size=5)
+            event_df['win_label'] = event_df.apply(label_window, args=[win_size], axis=1)
         centered_dfs.append(event_df)
     
     return pd.concat(centered_dfs)
 
-def sample_seizures(peri_df, start_buffer=15, end_buffer=15, mid_sz_length=5, win_size=5):
+def sample_seizures(peri_df, start_buffer=15, end_buffer=15, mid_sz_length=5, win_size=5, stride=1):
     """
     Returns index tracking all windows with zero centered at seizure onset and all seizures
     ending at the same time. Seizure window is determiend by length of start_buffer + end_buffer + mid_sz_length
@@ -592,26 +603,37 @@ def sample_seizures(peri_df, start_buffer=15, end_buffer=15, mid_sz_length=5, wi
     assert "window_designations" in peri_df.columns, "Unable to track seizure state without window designations!"
     assert "sz_end" in peri_df.columns, "need to find end of szr first!"
 
-    start_buffer =  start_buffer//win_size
-    end_buffer = end_buffer//win_size
-    mid_sz_length = mid_sz_length//win_size
+    start_buffer =  start_buffer//stride
+    end_buffer = end_buffer//stride
+    mid_sz_length = mid_sz_length//stride
+    #Get window number that seizure ends in
     sz_end = peri_df.sz_end.values[0]
 
+    #Buffers define the minimally acceptable seizure length
+    if sz_end < start_buffer + mid_sz_length + end_buffer:
+        return [np.nan for _ in range(peri_df.shape[0])]
+
     #pull out all windows leading up to (or after) seizure and the transition windows that we will preserve
-    all_wins = set(peri_df.win_sz_centered)
-    pre_wins =set( peri_df[peri_df.win_sz_centered < start_buffer].win_sz_centered)
-    post_wins = set(peri_df[peri_df.win_sz_centered > sz_end-end_buffer])
-    mid_wins = np.array(list(all_wins - pre_wins - post_wins))
+    all_wins = np.unique(peri_df.win_sz_centered)
+    pre_wins =np.unique( peri_df[peri_df.win_sz_centered < start_buffer].win_sz_centered)
+    post_wins = np.unique(peri_df[peri_df.win_sz_centered > sz_end-end_buffer].win_sz_centered)
+    mid_wins = np.setdiff1d(all_wins, pre_wins) 
+    mid_wins = np.setdiff1d(mid_wins, post_wins)
 
+    #resample middle windows
     mid_sample = np.random.choice(mid_wins, mid_sz_length)
-    mid_sample.sort()
-
+    # remap periods centered at seizure onset to start at seizure onset and sync middle seizure window
+    # indices 
     keep_wins = np.union1d(pre_wins, mid_sample )
     keep_wins = np.union1d(keep_wins, post_wins)
+    try:
+        remap_periods = dict(zip(keep_wins,[i for i in range(np.min(keep_wins), np.min(keep_wins)+keep_wins.shape[0])]))
+    except TypeError:
+        pdb.set_trace()
 
     #TODO: finish logic!
-
-    return None
+    resampled_periods = peri_df.win_sz_centered.apply(lambda x: remap_periods[x] if x in keep_wins else np.nan)
+    return resampled_periods
 
 
     
@@ -696,6 +718,8 @@ def center_windows(window_designations, periods, center_designations=["0.0_0.0_1
         np.ndarray: count of windows with zero marking the transition into the seizure state. THis is important for aligning across groups
     """
     transition_ind= find_transition(window_designations, center_designations)
+    if transition_ind == -1:
+        return [np.nan for _ in periods]
     trans_period = periods[transition_ind]
     centered_wins =periods - trans_period
     return centered_wins
@@ -714,15 +738,22 @@ def find_transition(window_designations, center_designations):
     Returns:
         int : index where window types change
     """
+    center_transitions= copy.copy(center_designations)
     if type(window_designations) != np.ndarray:
         window_designations = np.array([w for w in window_designations])
-    transition = np.where(window_designations == center_designations[0])[0]
-    if len(transition) == 0 and len(center_designations) > 1:
-        while len(transition) ==0 and len(center_designations) > 0:
-            transition = np.where(window_designations == center_designations[1])[0]
-            center_designations = center_designations[1:]
-    assert len(transition) != 0, f"Check center_designation {center_designations} and df! No transitions found"
-
+    try:
+        transition = np.where(window_designations == center_transitions[0])[0]
+    except IndexError:
+        pdb.set_trace()
+    if len(transition) == 0 and len(center_transitions) > 1:
+        while len(transition) ==0 and len(center_transitions) >=1:
+            transition = np.where(window_designations == center_transitions[0])[0]
+            center_transitions.pop(0)
+    try:
+        assert len(transition) != 0, f"Check center_designation {center_designations} and df! No transitions found"
+    except AssertionError:
+        if len(set(window_designations)) < 3:
+            return -1
     if len(transition) > 1:
         return transition[0]
     return transition
