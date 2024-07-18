@@ -5,7 +5,9 @@ from scipy.io import loadmat
 import mat73
 import glob
 import pdb
+import yaml
 from multiprocessing import Pool
+from functools import partial
 import getopt
 
 
@@ -224,7 +226,7 @@ def assemble_obj( conn_obj, wintype='full' ,**kwargs)->pd.DataFrame:
         window_dict = prep_window_dict(conn_obj)
         buffer = kwargs['buffer'] if 'buffer' in kwargs.keys() else 60
         win_size = kwargs['win_size'] if "win_size" in kwargs.keys() else 5
-        ref_stats= score_period(list(conn_dict.values()), window_dict, agg_win="interictal", buffer= buffer, win_size=win_size)
+        ref_stats= score_period(list(conn_dict.values()), window_dict, agg_win="interictal", buffer= buffer, win_size=win_size, **kwargs)
         conn_df =  assemble_net_conn( conn_dict, soz_inds, pz_inds,nz_inds,ref_stat=ref_stats, period_meta=window_dict)
     else:
         conn_df = assemble_net_conn(conn_dict, soz_inds, pz_inds,nz_inds)
@@ -234,7 +236,7 @@ def assemble_obj( conn_obj, wintype='full' ,**kwargs)->pd.DataFrame:
     conn_df['sz_type'] = read_conn_struct(conn_obj, 'pdc', 'sz_type')
     return conn_df
 
-def score_period(conn_mats, window_dict, agg_win="interictal", buffer=60, win_size=5, directed=True,bands=BANDS):
+def score_period(conn_mats, window_dict, agg_win="interictal", buffer=60, win_size=5, directed=True, stats='full',bands=BANDS):
     """
     score a set of connectivity matrices, filtered by period criterion. 
     Establishes the set of reference values to compare other periods against.
@@ -262,21 +264,29 @@ def score_period(conn_mats, window_dict, agg_win="interictal", buffer=60, win_si
             mu_in = np.mean(mu_in, axis=0).reshape(1,d)
             mean_in.append(mu_in)
 
-            sig_in = np.array([np.nanstd(conn_mats[i,b,:,:],axis=0) for i in range(num_win)])
-            sig_in = np.std(sig_in, axis=0).reshape(1,d)
-            std_in.append(sig_in)
+            sigma_in = np.array([np.nanstd(conn_mats[i,b,:,:],axis=0) for i in range(num_win)])
+            sigma_in = np.mean(sigma_in, axis=0).reshape(1,d)
+            std_in.append(std_in)
 
 
             mu_out = np.array([np.nanmean(conn_mats[i,b,:,:],axis=1) for i in range(num_win)])
             mu_out = np.mean(mu_out, axis=0).reshape(d,1)
             mean_out.append(mu_out)
 
-            sig_out = np.array([np.nanstd(conn_mats[i,b,:,:],axis=1) for i in range(num_win)])
-            sig_out = np.std(sig_out, axis=0).reshape(d,1)
-            std_out.append(sig_out)
+            sigma_out = np.array([np.nanstd(conn_mats[i,b,:,:],axis=1) for i in range(num_win)])
+            sigma_out = np.mean(sigma_out, axis=0).reshape(d,1)
+            std_out.append(std_out)
 
-        return {"mu_in":mean_in, "std_in":std_in, "mu_out":mean_out, "std_out": std_out}
-    
+        stat_dict =  {"mu_in":mean_in, "std_in":std_in, "mu_out":mean_out, "std_out": std_out}
+        #Additional code in to allow for preserving original pdc values. For example, not removing the mean but just 
+        # compressing the range based on the standard deviations, use stats = 'std'       
+        if stats == "std":
+            stat_dict['mu_in'] = [np.zeros((1,d)) for _ in range(len(bands))]
+            stat_dict['mu_out'] = [np.zeros((1,d)) for _ in range(len(bands))]
+        elif stats == 'mu' :
+            stat_dict['std_in'] = [np.zeros((1,d)) for _ in range(len(bands))]
+            stat_dict['std_out'] = [np.zeros((1,d)) for _ in range(len(bands))]
+        return stat_dict
 
 def filter_periods(conn_mats, window_dict, agg_win, buffer, win_size):
     """
@@ -542,10 +552,11 @@ def get_conn_dfs(datadir, pathout):
     from tqdm import tqdm
     return None
 
-def assemble_peri_obj_para(sub_objects:list, cores =12):
+def assemble_peri_obj_para(sub_objects:list, cores =12, **kwargs):
     """Assemble connectivity in parallelized fashion"""
     p = Pool(cores)
-    dfs =  p.map(assemble_obj, sub_objects)
+
+    dfs =  p.map(partial(assemble_obj, **kwargs), sub_objects)
     
     return pd.concat(dfs)
 
@@ -774,10 +785,20 @@ def main(argv):
     # with open(config_f, 'r') as f:
     #     config =  yaml.safe_load(f)
     # conn_df = gen_conn_dfs(datadir, pathout)
+
+    with open(config_f, 'r') as f:
+            config =  yaml.safe_load(f)
+
+    kwargs = config['peri_para']
+    #  = config['general']['h5filename']
+    # logdir = config['general']['logdir']
+
+    print(kwargs)
+
     paths = glob.glob(os.path.join(datadir, "*PDC.mat"))
     
     logger.add(os.path.join(logdir, f"connectivity_dynamics_run.log"), enqueue=True,level=40)
-    num_cores = 20
+    num_cores = 16
     count = 0
     peri_dfs = []
     #NOTE THIS assumes that the subject list is the same for all runs
@@ -787,7 +808,7 @@ def main(argv):
         structs = [structs[i] for i in incl_inds]
         # pdb.set_trace()
         # conn_df = assemble_obj(structs[0])
-        conn_df = assemble_peri_obj_para(structs, num_cores)
+        conn_df = assemble_peri_obj_para(structs, num_cores, **kwargs)
         peri_dfs.append(conn_df)
         count += len(path_chunk)
         logger.success(f"Finished  {count} seizures")

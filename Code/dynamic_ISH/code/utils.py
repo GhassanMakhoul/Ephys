@@ -153,7 +153,8 @@ def z_score_conn(conn_mat:np.ndarray, direction='none', mu=np.array([]), std=np.
             [2. 3.] 
             >>> #axis=1 -> collapse along columns and return the average of a row
             >>> np.mean(a, axis=1)
-            [1.5 3.5]
+            [1.5, 
+             3.5]
             
     Args:
         conn_mat (np.ndarray): symmetric connectivity matrix
