@@ -166,7 +166,6 @@ def assemble_net_conn( pdc_dict,soz_inds,pz_inds,nz_inds,bands=BANDS,ref_stat=de
     Returns:
         _type_: Dataframe of next connectivity for each region.
     """
-
     cols = ['period', 'region', 'net_pdc', 'in_pdc', 'out_pdc', 'freq_band', 'window_designations']
     
     net_df = pd.DataFrame(columns=cols)
@@ -176,9 +175,9 @@ def assemble_net_conn( pdc_dict,soz_inds,pz_inds,nz_inds,bands=BANDS,ref_stat=de
         for b in range(len(bands)):
             #TODO add z_score to interictal period and LOCK the reference!
             mu_in, std_in = ref_stat['mu_in'], ref_stat['std_in']
-            z_pdc_in = z_score_conn(pdc[b, :,:],mu=mu_in[b],std=std_in[b],direction='col')
+            z_pdc_in = z_score_conn(pdc[b, :,:],mu=mu_in[b,:],std=std_in[b,:],direction='col')
             mu_out, std_out = ref_stat['mu_out'], ref_stat['std_out']
-            z_pdc_out = z_score_conn(pdc[b,:,:], mu=mu_out[b], std=std_out[b], direction='row')
+            z_pdc_out = z_score_conn(pdc[b,:,:], mu=mu_out[:,b], std=std_out[:,b], direction='row')
 
             band = bands[b]
             
@@ -200,8 +199,21 @@ def assemble_net_conn( pdc_dict,soz_inds,pz_inds,nz_inds,bands=BANDS,ref_stat=de
             net_nz = nz_in - nz_out
             net_df.loc[ind] = [period,'nz',net_nz,nz_in, nz_out, band, period_designations]
             ind +=1
-    return net_df    
+    return net_df  
 
+def load_assemble_obj(path, **kwargs):
+    """Loads the .mat object specified in path
+    and runs the assemble _obj routine
+    
+    Returns a pd.dataframe or None (if unable to load object) 
+    """  
+    struct_obj = load_mat(path)
+    if struct_obj == None:
+        return pd.DataFrame()
+    return assemble_obj(struct_obj, **kwargs)
+
+
+    
 def assemble_obj( conn_obj, wintype='full' ,**kwargs)->pd.DataFrame:
     """For a given subject's connectivity struct, return the dataframe containing net
     connectivity for each frequency band, over relevant periods
@@ -224,9 +236,8 @@ def assemble_obj( conn_obj, wintype='full' ,**kwargs)->pd.DataFrame:
     
     if wintype == 'full':
         window_dict = prep_window_dict(conn_obj)
-        buffer = kwargs['buffer'] if 'buffer' in kwargs.keys() else 60
         win_size = kwargs['win_size'] if "win_size" in kwargs.keys() else 5
-        ref_stats= score_period(list(conn_dict.values()), window_dict, agg_win="interictal", buffer= buffer, win_size=win_size, **kwargs)
+        ref_stats= score_period(list(conn_dict.values()), window_dict, agg_win="interictal", win_size=win_size, **kwargs)
         conn_df =  assemble_net_conn( conn_dict, soz_inds, pz_inds,nz_inds,ref_stat=ref_stats, period_meta=window_dict)
     else:
         conn_df = assemble_net_conn(conn_dict, soz_inds, pz_inds,nz_inds)
@@ -254,38 +265,32 @@ def score_period(conn_mats, window_dict, agg_win="interictal", buffer=60, win_si
         stds = [np.nanstd(conn_mats[:,b,:,:]) for b in bands]
         return {"mu": means,"std":stds}
     else:
+        stat_dict = {}
         num_win, _, d,_ = conn_mats.shape
-        mean_in  =[]
-        mean_out = []
-        std_in = []
-        std_out = []
+        stat_dict['mu_in'] = np.zeros((len(bands),d)) 
+        stat_dict['mu_out'] = np.zeros((d,len(bands)))
+        stat_dict['std_in'] = np.ones((len(bands),d))
+        stat_dict['std_out'] = np.ones((d,len(bands)))
         for b in range(len(bands)):
-            mu_in = np.array([np.nanmean(conn_mats[i,b,:,:],axis=0) for i in range(num_win)])
-            mu_in = np.mean(mu_in, axis=0).reshape(1,d)
-            mean_in.append(mu_in)
+            if stats == 'mu' or stats == 'full':
+                mu_in = np.array([np.nanmean(conn_mats[i,b,:,:],axis=0) for i in range(num_win)])
+                mu_in = np.mean(mu_in, axis=0)
+                stat_dict['mu_in'][b,:] = mu_in
+                
+                mu_out = np.array([np.nanmean(conn_mats[i,b,:,:],axis=1) for i in range(num_win)])
+                mu_out = np.mean(mu_out, axis=0)
+                stat_dict['mu_out'][:,b] = mu_out
+            if stats == 'std' or stats == 'full':
+                sigma_in = np.array([np.nanstd(conn_mats[i,b,:,:],axis=0) for i in range(num_win)])
+                sigma_in = np.mean(sigma_in, axis=0)
+                stat_dict['std_in'][b,:] = sigma_in
 
-            sigma_in = np.array([np.nanstd(conn_mats[i,b,:,:],axis=0) for i in range(num_win)])
-            sigma_in = np.mean(sigma_in, axis=0).reshape(1,d)
-            std_in.append(std_in)
+                sigma_out = np.array([np.nanstd(conn_mats[i,b,:,:],axis=1) for i in range(num_win)])
+                sigma_out = np.mean(sigma_out, axis=0)
+                stat_dict['std_out'][:,b] = sigma_out 
 
-
-            mu_out = np.array([np.nanmean(conn_mats[i,b,:,:],axis=1) for i in range(num_win)])
-            mu_out = np.mean(mu_out, axis=0).reshape(d,1)
-            mean_out.append(mu_out)
-
-            sigma_out = np.array([np.nanstd(conn_mats[i,b,:,:],axis=1) for i in range(num_win)])
-            sigma_out = np.mean(sigma_out, axis=0).reshape(d,1)
-            std_out.append(std_out)
-
-        stat_dict =  {"mu_in":mean_in, "std_in":std_in, "mu_out":mean_out, "std_out": std_out}
         #Additional code in to allow for preserving original pdc values. For example, not removing the mean but just 
         # compressing the range based on the standard deviations, use stats = 'std'       
-        if stats == "std":
-            stat_dict['mu_in'] = [np.zeros((1,d)) for _ in range(len(bands))]
-            stat_dict['mu_out'] = [np.zeros((1,d)) for _ in range(len(bands))]
-        elif stats == 'mu' :
-            stat_dict['std_in'] = [np.zeros((1,d)) for _ in range(len(bands))]
-            stat_dict['std_out'] = [np.zeros((1,d)) for _ in range(len(bands))]
         return stat_dict
 
 def filter_periods(conn_mats, window_dict, agg_win, buffer, win_size):
@@ -527,7 +532,7 @@ def map_subject_to_flow(subj_id, pat_files, label_df, filt_dist=0, **kwargs ):
                 flow_dfs.append(df)
     return pd.concat(flow_dfs)
 
-def load_structs(file_list, cores=12)->list[dict]:
+def _load_structs(file_list, cores=12)->list[dict]:
     """loading .mat structs is the limiting step in most of these pipelines
     so let's paralellize this. With a 10G port, this should easily speed things up.
     Will slow down if querying ernie from diff network (maybe a VPN)
@@ -535,6 +540,12 @@ def load_structs(file_list, cores=12)->list[dict]:
     Args:
         file_list (_type_): list of .mats to load
         cores (int, optional) Defaults to 12.
+
+    NOTE: if pipeline is going to use parlalleization after load step, it may may sense to load
+    lazily. 
+    WARNING: any paralellization used after this point will copy working memory into each workers process memmory
+    so if you just loaded 10gb of data and each worker onlly needs 1gb, then this will unnecessarily copy 9gb
+    per worker
     """
     p = Pool(cores)
     return p.map(load_mat,file_list)
@@ -548,16 +559,19 @@ def map_cohort_to_flow(subj_ids, folders,label_df,**kwargs):
         flow_df.append(df)
     return pd.concat(flow_df)
 
-def get_conn_dfs(datadir, pathout):
-    from tqdm import tqdm
-    return None
 
-def assemble_peri_obj_para(sub_objects:list, cores =12, **kwargs):
+
+def assemble_peri_obj_para(struct_paths:list[str], cores =12, **kwargs):
     """Assemble connectivity in parallelized fashion"""
     p = Pool(cores)
 
-    dfs =  p.map(partial(assemble_obj, **kwargs), sub_objects)
-    
+    dfs =  p.imap(partial(load_assemble_obj, **kwargs), struct_paths)
+    dfs = [df for df in dfs if not df.empty]
+    # dfs = []
+    # for path in struct_paths:
+    #     df = load_assemble_obj(path, **kwargs)
+    #     if not df.empty:
+    #         dfs.append(df)
     return pd.concat(dfs)
 
 def center_onset(peri_df: pd.DataFrame, win_size = 5, center_designations=["0.0_0.0_1.0", "0.0_1.0_1.0"])->pd.DataFrame:
@@ -803,15 +817,11 @@ def main(argv):
     peri_dfs = []
     #NOTE THIS assumes that the subject list is the same for all runs
     for path_chunk in chunker(paths, num_cores):
-        structs = load_structs(path_chunk, num_cores)
-        incl_inds = [i for i in range(len(structs)) if structs[i] != None]
-        structs = [structs[i] for i in incl_inds]
-        # pdb.set_trace()
-        # conn_df = assemble_obj(structs[0])
-        conn_df = assemble_peri_obj_para(structs, num_cores, **kwargs)
+        
+        conn_df = assemble_peri_obj_para(path_chunk, num_cores, **kwargs)
         peri_dfs.append(conn_df)
         count += len(path_chunk)
-        logger.success(f"Finished  {count} seizures")
+        logger.success(f"Finished  {count} seizures",)
     peri_dfs = pd.concat(peri_dfs)
     subj = peri_dfs.patID.values[0]
     assert len(set(peri_dfs.patID)) ==1, "mixing subjects, For now that's bad!"

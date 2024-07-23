@@ -1,3 +1,4 @@
 peri_para:
-  stats : 'std'
+  stats : 'none'
+  buffer : 60
   
