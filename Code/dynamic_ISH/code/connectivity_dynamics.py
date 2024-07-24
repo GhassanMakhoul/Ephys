@@ -497,16 +497,16 @@ def conn_to_flow_df(conn_mat:np.ndarray, reg_inds:dict)->pd.DataFrame:
     """
     flow_targets = [(src, trgt) for src in reg_inds.keys() for trgt in reg_inds.keys()]
     flow_df = pd.DataFrame(columns=['source','target','value'])
-    total_conn = np.nansum(conn_mat)
+    # total_conn = np.nansum(conn_mat)
     for i, (src, trgt) in enumerate(flow_targets):
         src_inds = reg_inds[src]
         trgt_inds = reg_inds[trgt]
         src_rows = conn_mat[src_inds,:]
-        src_trgt_conns = np.nansum(src_rows[:,trgt_inds])/total_conn * 100 #calc proportion of total connections
+        src_trgt_conns = np.nansum(src_rows[:,trgt_inds]) 
         flow_df.loc[i] = [src,trgt,src_trgt_conns]
     return flow_df
 
-def map_subject_to_flow(subj_id, pat_files, label_df, filt_dist=0, **kwargs ):
+def map_subject_to_flow(subj_id, pat_files, filt_dist=0, **kwargs ):
     """_summary_
 
     Args:
@@ -515,19 +515,21 @@ def map_subject_to_flow(subj_id, pat_files, label_df, filt_dist=0, **kwargs ):
         filt_dist (int, optional): _description_. Defaults to 0.
     """
     flow_dfs = []
-    pat_structs = load_structs(pat_files, **kwargs)
+    pat_structs = _load_structs(pat_files, **kwargs)
     for pat_obj in pat_structs:
-        conn_dict, label_inds = prep_conn(subj_id, label_df, pat_obj,filt_dist=filt_dist, **kwargs)
+        pdc_dict, label_inds = prep_conn(pat_obj, wintype='full',filt_dist=filt_dist, **kwargs)
+        window_dict = prep_window_dict(pat_obj)
         if label_inds['pz'].shape[0] == 0:
             print(f"Subj {subj_id} has no PZ designation")
             logger.warning(f"Subj {subj_id} has no PZ zone!")
-        for b, band in enumerate(BANDS):
-            for period in PERIOD:
-                conn_mat = conn_dict[period][b,:,:]
+        
+        for period, pdc in pdc_dict.items():
+            for b, band in enumerate(BANDS):
+                conn_mat = pdc[b,:,:]
                 df = conn_to_flow_df(conn_mat, label_inds)
                 df['subj'] = subj_id
                 df['band'] = band
-                df['period'] = period
+                df['period'] = window_dict[period]
                 df['seizure'] = pat_obj['sz_type']
                 flow_dfs.append(df)
     return pd.concat(flow_dfs)
@@ -550,14 +552,14 @@ def _load_structs(file_list, cores=12)->list[dict]:
     p = Pool(cores)
     return p.map(load_mat,file_list)
 
-def map_cohort_to_flow(subj_ids, folders,label_df,**kwargs):
+def map_cohort_to_flow(subj_ids, folders,pathout,**kwargs):
     flow_df = []
     for i,subj in enumerate(subj_ids):
         sub_files = glob.glob(os.path.join(folders[i], '*mat'))
-        sub_label_df = label_df[label_df.subj==subj]
-        df  = map_subject_to_flow(subj, sub_files, sub_label_df, **kwargs)
-        flow_df.append(df)
-    return pd.concat(flow_df)
+        df  = map_subject_to_flow(subj, sub_files, **kwargs)
+        df.to_csv(os.path.join(pathout, f'peri_ictal_flow_{subj}.csv'))
+        print(f'Saving {subj} 3-node view to {pathout} as peri_ictal_flow_{subj}.csv')
+
 
 
 
