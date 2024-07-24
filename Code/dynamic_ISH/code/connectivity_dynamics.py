@@ -506,7 +506,34 @@ def conn_to_flow_df(conn_mat:np.ndarray, reg_inds:dict)->pd.DataFrame:
         flow_df.loc[i] = [src,trgt,src_trgt_conns]
     return flow_df
 
-def map_subject_to_flow(subj_id, pat_files, filt_dist=0, **kwargs ):
+
+def gen_flow_dfs(pathout, inp_paths, num_cores =1, **kwargs)->None:
+    """generates a tri-node summary or a given subjects connectivity matrices
+    across all periods. 
+
+    Args:
+        pathout (str): folder to save csv's
+        inp_paths (list[str]): list of .mat files for a given subject
+
+        NOTE: for now this assumes that all files belong to the same subject!
+    """
+    subj_dfs = []
+    if num_cores == 1:
+        for i,inp_path in enumerate(inp_paths):
+            df  = map_subject_to_flow(inp_path, **kwargs)
+            subj_dfs.append(df)
+    else:
+        logger.info("Running on parallel track")
+        p = Pool(min(num_cores, len(inp_paths)))
+        subj_dfs = p.imap(partial(map_subject_to_flow, **kwargs), inp_paths)
+        p.close()
+    
+    subj_dfs = pd.concat(subj_dfs)
+    subj = subj_dfs.patID.values[0]
+    subj_dfs.to_csv(os.path.join(pathout, f'peri_ictal_flow_{subj}.csv'), index=False)
+    logger.success(f'Saving {subj} 3-node view of {len(inp_paths)} seizures to {pathout} as peri_ictal_flow_{subj}.csv')
+
+def map_subject_to_flow(pat_file, filt_dist=0, **kwargs ):
     """_summary_
 
     Args:
@@ -515,26 +542,30 @@ def map_subject_to_flow(subj_id, pat_files, filt_dist=0, **kwargs ):
         filt_dist (int, optional): _description_. Defaults to 0.
     """
     flow_dfs = []
-    pat_structs = _load_structs(pat_files, **kwargs)
-    for pat_obj in pat_structs:
-        pdc_dict, label_inds = prep_conn(pat_obj, wintype='full',filt_dist=filt_dist, **kwargs)
-        window_dict = prep_window_dict(pat_obj)
-        if label_inds['pz'].shape[0] == 0:
-            print(f"Subj {subj_id} has no PZ designation")
-            logger.warning(f"Subj {subj_id} has no PZ zone!")
-        
-        for period, pdc in pdc_dict.items():
-            for b, band in enumerate(BANDS):
-                conn_mat = pdc[b,:,:]
-                df = conn_to_flow_df(conn_mat, label_inds)
-                df['subj'] = subj_id
-                df['band'] = band
-                df['period'] = window_dict[period]
-                df['seizure'] = pat_obj['sz_type']
-                flow_dfs.append(df)
-    return pd.concat(flow_dfs)
+    pat_obj = load_mat(pat_file)
 
-def _load_structs(file_list, cores=12)->list[dict]:
+    subj_id = read_conn_struct(pat_obj, 'pdc', 'patID')
+    pdc_dict, label_inds = prep_conn(pat_obj, wintype='full',filt_dist=filt_dist, **kwargs)
+    window_dict = prep_window_dict(pat_obj)
+    if label_inds['pz'].shape[0] == 0:
+        print(f"Subj {subj_id} has no PZ designation for the following struct {pat_file}")
+        logger.warning(f"Subj {subj_id} has no PZ zone!")
+    
+    for period, pdc in pdc_dict.items():
+        for b, _ in enumerate(BANDS):
+            conn_mat = pdc[b,:,:]
+            df = conn_to_flow_df(conn_mat, label_inds)
+            df['period'] = window_dict[period]
+            flow_dfs.append(df)
+    
+    flow_dfs = pd.concat(flow_dfs)
+    flow_dfs['eventID'] = read_conn_struct(pat_obj, 'pdc', 'eventID')
+    flow_dfs['patID'] = subj_id
+    flow_dfs['sz_type'] = read_conn_struct(pat_obj, 'pdc', 'sz_type')
+    return flow_dfs
+    
+
+def _load_structs(file_list, cores=12, **kwargs)->list[dict]:
     """loading .mat structs is the limiting step in most of these pipelines
     so let's paralellize this. With a 10G port, this should easily speed things up.
     Will slow down if querying ernie from diff network (maybe a VPN)
@@ -552,16 +583,6 @@ def _load_structs(file_list, cores=12)->list[dict]:
     p = Pool(cores)
     return p.map(load_mat,file_list)
 
-def map_cohort_to_flow(subj_ids, folders,pathout,**kwargs):
-    flow_df = []
-    for i,subj in enumerate(subj_ids):
-        sub_files = glob.glob(os.path.join(folders[i], '*mat'))
-        df  = map_subject_to_flow(subj, sub_files, **kwargs)
-        df.to_csv(os.path.join(pathout, f'peri_ictal_flow_{subj}.csv'))
-        print(f'Saving {subj} 3-node view to {pathout} as peri_ictal_flow_{subj}.csv')
-
-
-
 
 def assemble_peri_obj_para(struct_paths:list[str], cores =12, **kwargs):
     """Assemble connectivity in parallelized fashion"""
@@ -569,11 +590,6 @@ def assemble_peri_obj_para(struct_paths:list[str], cores =12, **kwargs):
 
     dfs =  p.imap(partial(load_assemble_obj, **kwargs), struct_paths)
     dfs = [df for df in dfs if not df.empty]
-    # dfs = []
-    # for path in struct_paths:
-    #     df = load_assemble_obj(path, **kwargs)
-    #     if not df.empty:
-    #         dfs.append(df)
     return pd.concat(dfs)
 
 def center_onset(peri_df: pd.DataFrame, win_size = 5, center_designations=["0.0_0.0_1.0", "0.0_1.0_1.0"])->pd.DataFrame:
@@ -785,6 +801,22 @@ def find_transition(window_designations, center_designations):
         return transition[0]
     return transition
 
+def peri_net_pipeline(pathout, paths, num_cores=16, **kwargs):
+    count = 0
+    peri_dfs = []
+    #NOTE THIS assumes that the subject list is the same for all runs
+    for path_chunk in chunker(paths, num_cores):
+        conn_df = assemble_peri_obj_para(path_chunk, num_cores, **kwargs)
+        peri_dfs.append(conn_df)
+        count += len(path_chunk)
+        logger.success(f"Finished  {count} seizures",)
+    peri_dfs = pd.concat(peri_dfs)
+    subj = peri_dfs.patID.values[0]
+    assert len(set(peri_dfs.patID)) ==1, "mixing subjects, For now that's bad!"
+    peri_dfs.to_csv(os.path.join(pathout, f"peri_ictal_network_{subj}.csv"),index=False)
+    logger.success(f"Saving {subj} net periconnectivity in {pathout} as peri_ictal_network_{subj}.csv ")
+
+
 
 def main(argv):
     opts, _ = getopt.getopt(argv,"d:p:c:l:",["datadir=",'pathout=','config=','logdir='])
@@ -797,38 +829,30 @@ def main(argv):
             config_f = arg
         elif opt in ("-l", "--logdir"):
             logdir = arg
-    #TODO use yamls and configs
-    # with open(config_f, 'r') as f:
-    #     config =  yaml.safe_load(f)
-    # conn_df = gen_conn_dfs(datadir, pathout)
+    
 
+    logger.add(os.path.join(logdir, f"connectivity_dynamics_run.log"), enqueue=True,level=40)
     with open(config_f, 'r') as f:
             config =  yaml.safe_load(f)
 
     kwargs = config['peri_para']
-    #  = config['general']['h5filename']
-    # logdir = config['general']['logdir']
-
     print(kwargs)
+    pipeline = "net" if 'pipeline' not in config.keys() else config['pipeline']
 
     paths = glob.glob(os.path.join(datadir, "*PDC.mat"))
-    
-    logger.add(os.path.join(logdir, f"connectivity_dynamics_run.log"), enqueue=True,level=40)
-    num_cores = 16
-    count = 0
-    peri_dfs = []
-    #NOTE THIS assumes that the subject list is the same for all runs
-    for path_chunk in chunker(paths, num_cores):
+    match pipeline:
+        case 'net':
+            peri_net_pipeline(pathout, paths, **kwargs)
+        case 'trinode':
+            gen_flow_dfs(pathout, paths, **kwargs)
+        case "power_spectral":
+            return NotImplementedError("Need to Implement Straight UP PSD")
+        case "e_i_bal":
+            return NotImplementedError("have not yet implemented The E/I Autocorr")
         
-        conn_df = assemble_peri_obj_para(path_chunk, num_cores, **kwargs)
-        peri_dfs.append(conn_df)
-        count += len(path_chunk)
-        logger.success(f"Finished  {count} seizures",)
-    peri_dfs = pd.concat(peri_dfs)
-    subj = peri_dfs.patID.values[0]
-    assert len(set(peri_dfs.patID)) ==1, "mixing subjects, For now that's bad!"
-    peri_dfs.to_csv(os.path.join(pathout, f"peri_ictal_network_{subj}.csv"),index=False)
-    logger.success(f"Saving {subj} net periconnectivity in {pathout} as peri_ictal_network_{subj}.csv ")
+    
+
+
 if __name__ == "__main__":
     with logger.catch():
         main(sys.argv[1:])

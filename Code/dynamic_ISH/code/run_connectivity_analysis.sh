@@ -8,4 +8,5 @@ CONFIG_FILE="config_connectivity.yml"
 for d in $INP_DIR*/; do 
     echo Running connectivity on $d 
     python connectivity_dynamics.py -d $d -p $OUT_DIR -l $LOG_DIR -c $CONFIG_FILE
+    break
 done
