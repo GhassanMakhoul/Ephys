@@ -502,7 +502,7 @@ def conn_to_flow_df(conn_mat:np.ndarray, reg_inds:dict)->pd.DataFrame:
         src_inds = reg_inds[src]
         trgt_inds = reg_inds[trgt]
         src_rows = conn_mat[src_inds,:]
-        src_trgt_conns = np.nansum(src_rows[:,trgt_inds]) 
+        src_trgt_conns = np.nanmean(src_rows[:,trgt_inds]) 
         flow_df.loc[i] = [src,trgt,src_trgt_conns]
     return flow_df
 
@@ -555,7 +555,8 @@ def map_subject_to_flow(pat_file, filt_dist=0, **kwargs ):
         for b, _ in enumerate(BANDS):
             conn_mat = pdc[b,:,:]
             df = conn_to_flow_df(conn_mat, label_inds)
-            df['period'] = window_dict[period]
+            df['period'] = period
+            df['window_designationas'] = window_dict[period]
             flow_dfs.append(df)
     
     flow_dfs = pd.concat(flow_dfs)
@@ -565,7 +566,8 @@ def map_subject_to_flow(pat_file, filt_dist=0, **kwargs ):
     return flow_dfs
     
 
-def _load_structs(file_list, cores=12, **kwargs)->list[dict]:
+def load_structs(file_list, cores=12, **kwargs)->list[dict]:
+    
     """loading .mat structs is the limiting step in most of these pipelines
     so let's paralellize this. With a 10G port, this should easily speed things up.
     Will slow down if querying ernie from diff network (maybe a VPN)

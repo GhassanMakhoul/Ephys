@@ -1,5 +1,8 @@
 peri_para:
   stats : 'none'
-  num_cores : 16
+  num_cores : 1
   buffer : 60
+ei_bal:
+  num_cores : 20
+
 pipeline: 'trinode'

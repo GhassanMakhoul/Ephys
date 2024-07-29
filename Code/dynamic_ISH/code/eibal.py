@@ -2,10 +2,12 @@ import sys
 import os
 import re
 import logging
+from loguru import logger
 import warnings
 import getopt
 from tqdm import tqdm
 
+import pdb
 
 import pandas as pd
 import numpy as np
@@ -39,14 +41,15 @@ def gen_global_peri_psd(subj_obj, spectral_keys)-> pd.DataFrame:
     """
 
     spectral_dfs = []
-
-    freqs = subj_obj['pwelch_freqs']
-    for key in spectral_keys:
-        decomps = subj_obj[key]
+    window_dict = prep_window_dict(subj_obj)
+    pwelch_all_windows = read_conn_struct(subj_obj,'pdc','pwelch_all_windowed')
+    for key, window_designation in window_dict.items():
+        decomps = pwelch_all_windows[key,:,:]
         avg_decomp = np.mean(decomps, axis=0)
         df = pd.DataFrame()
         df['freq'] = freqs
         df['power'] = np.log(avg_decomp)
+        df['window_designations'] = window_designation
         df['period'] = key
         spectral_dfs.append(df)
     return pd.concat(spectral_dfs)
@@ -65,84 +68,80 @@ def gen_contact_peri_psd(subj_obj, spectral_keys, contact_labels)->pd.DataFrame:
         contact level dfs. Meaning, this will have many many rows for all the measurements
     """
     spectral_dfs = []
-    freqs = subj_obj['pwelch_freqs']
+    freqs = read_conn_struct(subj_obj, 'pdc','pwelch_freqs')
+  
+    window_dict = prep_window_dict(subj_obj)
+    pwelch_all_windows = read_conn_struct(subj_obj,'pdc','pwelch_all_windowed')
     #NOTE: using the subj_obj dictionary like this is not the most general way to code this pipeline
     #TODO: return to this and remove hardcoded key referencing
 
-    for key in spectral_keys:
-        decomps = subj_obj[key]
-        num_ch, num_freq = decomps.shape
+    for key, window_designation in window_dict.items():
+        pwelch = pwelch_all_windows[key, :, :]
+        num_ch, num_freq = pwelch.shape
         #These list comps are crazy -> repeats the label for number of frequency decomps
         ch_labels = [l for label in contact_labels for l in [label]*num_freq ] 
         #repeats frequency so that there are x values per contact psd
         freq_rep = [f for fs in [freqs for i in range(num_ch)] for f in fs]
-        flat_decomp = decomps.reshape(-1,1)
+        flat_decomp = pwelch.reshape(-1,1)
         df = pd.DataFrame()
         df['freq'] = freq_rep
         # pdb.set_trace()
         df['power'] = np.log(flat_decomp)
         df['labels'] = ch_labels
         df['period'] = key
+        df['window_deisgnations'] = window_designation
         spectral_dfs.append(df)
     return pd.concat(spectral_dfs)
 
 
 
-def get_reg_ei(subj_obj, spectral_keys='all')->pd.DataFrame:
+def get_reg_ei(subj_obj, window='full')->pd.DataFrame:
     """Loops through peiods and pulls out the psd per period then calculates
     the E/I index of the period using the get_ei_slope method. Builds a dataframe of each 
     periods values on a per contact level.
 
     Args:
         subj_obj (_type_): matlab struct 
-        spectral_keys (_type_): _keys for struct to pull out specific periods' psd
+        window_type (_type_): _keys for struct to pull out specific periods' psd
         contact_label (_type_): labels of the channels to be used for boolean indexing 
 
     Returns:
         pd.DataFrame: dataframe with columns for period, E/I slope, region
     """
-    if 'pdc' in subj_obj.keys():
-        subj_obj = subj_obj['pdc']['seizure']
-    if spectral_keys == 'all':
-        spectral_keys = SPECTRAL_KEYS
+    
+    freqs = read_conn_struct(subj_obj, 'pdc','pwelch_freqs')
+    if window == 'full':
+        window_dict = prep_window_dict(subj_obj)
+        pwelch_all_windows = read_conn_struct(subj_obj,'pdc','pwelch_all_windowed')
 
-    freqs = subj_obj['pwelch_freqs']
+    freqs = read_conn_struct(subj_obj, 'pdc', 'pwelch_freqs')
     ei_dfs = []
-    contact_label = format_soz(subj_obj['soz_per_seizure'])
-
-    for key in spectral_keys:
-        decomps = subj_obj[key]
+    soz_per_szr = read_conn_struct(subj_obj, 'pdc', 'soz_per_seizure')
+    contact_label = format_soz(soz_per_szr)
+    subj = read_conn_struct(subj_obj,'pdc','patID')
+    sz_type = read_conn_struct(subj_obj,'pdc', 'sz_type')
+    for key, window_designation in window_dict.items():
+        pwelch = pwelch_all_windows[key, :,:]
         for reg in set(contact_label):
             reg_inds = np.where(np.array(contact_label) == reg)
             # import pdb
             # pdb.set_trace()
-            reg_psds = decomps[reg_inds]
+            reg_psds = pwelch[reg_inds]
             ei_vals = [get_ei_slope(freqs, reg_psds[i,:]) for i in range(reg_psds.shape[0])]
             df = pd.DataFrame()
             df['e_i'] = ei_vals
             df['region'] = reg
             df['period'] = key
+            df['window_designation'] = window_designation
             ei_dfs.append(df)
-    return pd.concat(ei_dfs)
+    ei_dfs = pd.concat(ei_dfs)
+    ei_dfs ['patID'] = subj
+    ei_dfs['sz_type'] = sz_type
+    return ei_dfs
         
 
 
-def get_reg_ei_para(sub_objects:list, sub_list, sz_list, cores =12, spectral_keys='all')->pd.DataFrame:
-    """Similar to get_reg_ei just parallellized
 
-    Args:
-        sub_objects (list): list of struct objects to apply get_reg_ei to
-        spectral_keys (str, optional): _description_. Defaults to 'all'.
-
-    Returns:
-        pd.DataFrame: dataframe with columns for period, E/I slope, region
-    """
-    p = Pool(cores)
-    dfs =  p.map(get_reg_ei, sub_objects)
-    for i, df in enumerate(dfs):
-        df['subj'] = sub_list[i]
-        df['sz_type'] = sz_list[i]
-    return pd.concat(dfs)
 
 def gen_patient_psd(subj_id, pat_structs,spectral_keys, level='gen'):
     """should generate all peri psd's per patient's seizure
@@ -168,8 +167,21 @@ def gen_patient_psd(subj_id, pat_structs,spectral_keys, level='gen'):
 
 
     #NOTE: using soz_per_seizure
-    map_label
+    
 
+def get_reg_ei_para(sub_objects:list, cores =12, spectral_keys='all')->pd.DataFrame:
+    """Similar to get_reg_ei just parallellized
+
+    Args:
+        sub_objects (list): list of struct objects to apply get_reg_ei to
+        spectral_keys (str, optional): _description_. Defaults to 'all'.
+
+    Returns:
+        pd.DataFrame: dataframe with columns for period, E/I slope, region
+    """
+    p = Pool(cores)
+    dfs =  p.map(get_reg_ei, sub_objects)
+    return pd.concat(dfs)
 
 
 def get_ei_slope(freqs:np.ndarray, power:np.ndarray, ei_range=(30,50))->float:
@@ -189,8 +201,8 @@ def get_ei_slope(freqs:np.ndarray, power:np.ndarray, ei_range=(30,50))->float:
 
     assert len(freqs) == len(power), "Freqs array needs to track power array! check array sizes."
     f_inds = np.logical_and(freqs > ei_range[0], freqs < ei_range[1])
- 
-    power_range = power[f_inds]
+    log_power = np.log(power)
+    power_range = log_power[f_inds]
     freq_range = freqs[f_inds]
     lr = LinearRegression()
     # import pdb
@@ -199,9 +211,12 @@ def get_ei_slope(freqs:np.ndarray, power:np.ndarray, ei_range=(30,50))->float:
     slope = lr.coef_
     return slope[0][0]
 
-def gen_ei_dfs(data_dir, out_dir):
+def gen_ei_dfs(data_dir, out_dir,num_cores=20):
     """generates the ei_df in a paralellized fashion that saves output. Saves intermediate csvs too
     and returns final df with pd.concat
+    NOTE: THIS assumes that the directory you're passing in as DATA_DIR is the top level directory
+    for ONE AND ONLY ONE subject/patient at a time. The code will run the same with a differnt directory
+    organization tbh, but the book keeping may be off somewhere downstream/things may be slower too.
 
     Args:
         data dir: data with  structs /patID/struct.mat
@@ -209,22 +224,18 @@ def gen_ei_dfs(data_dir, out_dir):
     """
     from tqdm import tqdm
 
-    sub_paths= glob.glob(os.path.join(data_dir, "*pat*", "*.mat"))
-    num_cores = 20
+    sub_paths= glob.glob(os.path.join(data_dir, "*PDC.mat"))
+    
     ei_dfs = []
     count = 1
+    assert len(sub_paths) > 0, f"No files to load in {sub_paths}, check {data_dir}"
     for f_paths in tqdm(chunker(sub_paths, num_cores)):
         structs = load_structs(f_paths,num_cores)
         incl_inds = [i for i in range(len(structs)) if structs[i] != None]
         structs = [structs[i] for i in incl_inds]
-
-        sub_list = [sub_path.split("/")[-2] for sub_path in f_paths]
-        sub_list = [sub_list[i] for i in incl_inds] #NOTE: god this is messy. TODO: fix struct chars for ID and sztype
-        sz_list = [sub_path.split("/")[-1].split("_")[-2] for sub_path in f_paths]
-        sz_list = [sz_list[i] for i in incl_inds]
-
-        res_dfs = get_reg_ei_para(structs, sub_list, sz_list, cores=num_cores)
-        res_dfs.to_csv(os.path.join(out_dir,f'ei_tmp_{count}.csv'),index=False)
+        res_dfs = get_reg_ei_para(structs, cores=num_cores)
+        subj = res_dfs.patID.values[0]
+        res_dfs.to_csv(os.path.join(out_dir,f'ei_{subj}_tmp_{count}.csv'),index=False)
         print(f"Saved first {count*num_cores} seizures to folder: {out_dir}")
         ei_dfs.append(res_dfs)
         
@@ -243,10 +254,13 @@ def main(argv):
         elif opt in ("-c", '--config'):
             config_f = arg
     #TODO use yamls and configs
-    # with open(config_f, 'r') as f:
-    #     config =  yaml.safe_load(f)
+    with open(config_f, 'r') as f:
+        config =  yaml.safe_load(f)
+        config = config['ei_bal']
+    logger.info(f"Running eibal on {datadir} with the following config:\n{config}")
     ei_df = gen_ei_dfs(datadir, pathout)
-    ei_df.to_csv(os.path.join(pathout, "ei_bal.csv"),index=False)
+    subj = ei_df.patID.values[0]
+    ei_df.to_csv(os.path.join(pathout, f"ei_bal_{subj}.csv"),index=False)
 
 if __name__ == '__main__':
     main(sys.argv[1:])    
