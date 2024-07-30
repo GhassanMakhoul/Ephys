@@ -594,7 +594,7 @@ def assemble_peri_obj_para(struct_paths:list[str], cores =12, **kwargs):
     dfs = [df for df in dfs if not df.empty]
     return pd.concat(dfs)
 
-def center_onset(peri_df: pd.DataFrame, win_size = 5, center_designations=["0.0_0.0_1.0", "0.0_1.0_1.0"])->pd.DataFrame:
+def center_onset(peri_df: pd.DataFrame, win_size=5, stride=1, center_designations=["0.0_0.0_1.0", "0.0_1.0_1.0"])->pd.DataFrame:
     """Given a dataframe with each row matching net connectivity per period
     and a string representation of the beginning_middle_end of each window designation, 
     this method returns a modified dataframe with a "win_sz_centered" column that counts up to 
@@ -629,7 +629,7 @@ def center_onset(peri_df: pd.DataFrame, win_size = 5, center_designations=["0.0_
             else:
                 event_df['sz_end'] = get_sz_end(event_df)
                 event_df['win_sz_st_end'] = sample_seizures(event_df, start_buffer=10, end_buffer=10, mid_sz_length=10, win_size=5)
-                event_df['win_label'] = event_df.apply(label_window, args=[win_size], axis=1)
+                event_df['win_label'] = event_df.apply(label_window, args=[win_size, stride], axis=1)
             centered_dfs.append(event_df)
         except IndexError as e:
             logger.warning(f"Issue centering {subj} on event: {event}.\nMore details: {e}")
@@ -708,7 +708,7 @@ def get_sz_end(peri_df, use_col='win_sz_centered'):
     return peri_df[use_col].values[sz_end]
 
 
-def label_window(df_row, win_size):
+def label_window(df_row, win_size, stride=1):
     """Labels a row of the data frame using the window_designation column
     and the win_sz_centerd column to assign states. 
 
@@ -734,11 +734,11 @@ def label_window(df_row, win_size):
     sz_end = df_row['sz_end']
     match win_designation:
         case "0.0_0.0_0.0":
-            if centered_period * win_size < -60:
+            if centered_period * stride < -60:
                 return "interictal"
             return "pre_ictal"
         case "0.0_0.0_1.0" | "0.0_1.0_1.0":
-            if centered_period >=0:
+            if centered_period >= 0:
                 return "early_ictal"
             return "pre_ictal"
         case "1.0_1.0_1.0": 
@@ -747,7 +747,7 @@ def label_window(df_row, win_size):
             return "late_ictal"
         case "2.0_2.0_2.0":
             #NOTE: magic number at 60, in future make early post ictal period designation more modular
-            if (centered_period - sz_end)* win_size <= 60:
+            if (centered_period - sz_end)* stride <= 60:
                 return "early_post_ictal" 
             return "post_ictal"
     return 
