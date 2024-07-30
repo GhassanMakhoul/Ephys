@@ -114,12 +114,13 @@ def get_reg_ei(subj_obj, window='full')->pd.DataFrame:
         window_dict = prep_window_dict(subj_obj)
         pwelch_all_windows = read_conn_struct(subj_obj,'pdc','pwelch_all_windowed')
 
-    freqs = read_conn_struct(subj_obj, 'pdc', 'pwelch_freqs')
     ei_dfs = []
     soz_per_szr = read_conn_struct(subj_obj, 'pdc', 'soz_per_seizure')
     contact_label = format_soz(soz_per_szr)
+    freqs = read_conn_struct(subj_obj, 'pdc', 'pwelch_freqs')
     subj = read_conn_struct(subj_obj,'pdc','patID')
     sz_type = read_conn_struct(subj_obj,'pdc', 'sz_type')
+    eventID = read_conn_struct(subj_obj, 'pdc','eventID')
     for key, window_designation in window_dict.items():
         pwelch = pwelch_all_windows[key, :,:]
         for reg in set(contact_label):
@@ -137,6 +138,7 @@ def get_reg_ei(subj_obj, window='full')->pd.DataFrame:
     ei_dfs = pd.concat(ei_dfs)
     ei_dfs ['patID'] = subj
     ei_dfs['sz_type'] = sz_type
+    ei_dfs['eventID'] = eventID
     return ei_dfs
         
 
