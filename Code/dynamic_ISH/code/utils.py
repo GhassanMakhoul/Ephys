@@ -185,3 +185,9 @@ def z_score_conn(conn_mat:np.ndarray, direction='none', mu=np.array([]), std=np.
         
 def chunker(seq, size):
     return (seq[pos:pos + size] for pos in range(0, len(seq), size))
+
+def update_dict(net_dict, key, val):
+    
+    net_dict.setdefault(key, []).append(val)
+
+    return net_dict

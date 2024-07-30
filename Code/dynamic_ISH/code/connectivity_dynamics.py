@@ -47,7 +47,6 @@ def load_mat(f):
             print(f"Problem Loading {f}")
             return None
     
-
 def get_pat_conn_labels(pat_df, regions, subj_id):
     """Returns an array of channels as NZ, SOZ, PZ, etc
 
@@ -81,7 +80,6 @@ def get_reg_inds(pat_conn_labels):
     iz_bool = pat_conn_labels =='IZ'
     nz_inds = np.where(np.logical_or(nz_bool, iz_bool))[0]
     return {'soz':soz_inds, 'pz' : pz_inds, 'nz': nz_inds}
-
 
 
 def get_conn_dict_full(conn_obj,key='pdc', filt_dist=0,**kwargs):
@@ -152,7 +150,7 @@ def filter_dist(conn_mat:np.ndarray, dist_mat:np.ndarray, filt_dist:float)-> np.
     return conn_mat
 
 @logger.catch
-def assemble_net_conn( pdc_dict,soz_inds,pz_inds,nz_inds,bands=BANDS,ref_stat=defaultdict(lambda: None),period_meta=defaultdict(lambda :'')):
+def assemble_net_conn(pdc_dict, soz_inds, pz_inds, nz_inds, bands=BANDS, ref_stat=defaultdict(lambda: None), period_meta=defaultdict(lambda :'')):
     """Assemble net directed connectivity across periods of interest for all 
     frequency bands
 
@@ -168,8 +166,8 @@ def assemble_net_conn( pdc_dict,soz_inds,pz_inds,nz_inds,bands=BANDS,ref_stat=de
     """
     cols = ['period', 'region', 'net_pdc', 'in_pdc', 'out_pdc', 'freq_band', 'window_designations']
     
-    net_df = pd.DataFrame(columns=cols)
-    ind = 0 
+    net_dict = {}
+
     for period, pdc in pdc_dict.items():
         period_designations = period_meta[period]
         for b in range(len(bands)):
@@ -184,22 +182,26 @@ def assemble_net_conn( pdc_dict,soz_inds,pz_inds,nz_inds,bands=BANDS,ref_stat=de
             soz_in = np.nanmean(z_pdc_out[:,soz_inds])
             soz_out = np.nanmean(z_pdc_in[soz_inds,:])
             net_soz = soz_in - soz_out
-            net_df.loc[ind] = [period,'soz',net_soz,soz_in, soz_out, band,period_designations]
-            ind += 1
+
+            for key,val in zip(cols,[period,'soz',net_soz,soz_in, soz_out, band,period_designations]):
+                net_dict = update_dict(net_dict,key,val)
+
             if len(pz_inds) != 0:
                 pz_in = np.nanmean(z_pdc_out[:,pz_inds])
                 pz_out = np.nanmean(z_pdc_in[pz_inds,:])
                 net_pz = pz_in - pz_out
-                net_df.loc[ind] = [period,'pz',net_pz,pz_in, pz_out, band, period_designations]
-                ind +=1
-
+                for key,val in zip(cols,[period,'pz',net_pz,pz_in, pz_out, band, period_designations]):
+                    net_dict = update_dict(net_dict,key,val)
 
             nz_in = np.nanmean(z_pdc_out[:,nz_inds])
             nz_out = np.nanmean(z_pdc_in[nz_inds,:])
             net_nz = nz_in - nz_out
-            net_df.loc[ind] = [period,'nz',net_nz,nz_in, nz_out, band, period_designations]
-            ind +=1
-    return net_df  
+            for key,val in zip(cols,[period,'nz',net_nz,nz_in, nz_out, band, period_designations]):
+                net_dict = update_dict(net_dict,key,val)
+
+    net_df = pd.DataFrame.from_dict(net_dict)
+    
+    return net_df
 
 def load_assemble_obj(path, **kwargs):
     """Loads the .mat object specified in path
@@ -212,19 +214,17 @@ def load_assemble_obj(path, **kwargs):
         return pd.DataFrame()
     return assemble_obj(struct_obj, **kwargs)
 
-
-    
 def assemble_obj( conn_obj, wintype='full' ,**kwargs)->pd.DataFrame:
     """For a given subject's connectivity struct, return the dataframe containing net
     connectivity for each frequency band, over relevant periods
-    NOTE: this will only work with DIRECTED connecitivity
+    NOTE: this will only work with DIRECTED connectivity
 
     Args:
         conn_f (str): .mat struct with connectivity matrices
         label_df (df): df of channel labels -> {SOZ_inds,NZ_inds, PZ_inds}
 
     Returns:
-        pd.DataFrame: net connecitivity
+        pd.DataFrame: net connectivity
     """
 
     
@@ -238,9 +238,9 @@ def assemble_obj( conn_obj, wintype='full' ,**kwargs)->pd.DataFrame:
         window_dict = prep_window_dict(conn_obj)
         win_size = kwargs['win_size'] if "win_size" in kwargs.keys() else 5
         ref_stats= score_period(list(conn_dict.values()), window_dict, agg_win="interictal", win_size=win_size, **kwargs)
-        conn_df =  assemble_net_conn( conn_dict, soz_inds, pz_inds,nz_inds,ref_stat=ref_stats, period_meta=window_dict)
+        conn_df = assemble_net_conn(conn_dict, soz_inds, pz_inds, nz_inds, ref_stat=ref_stats, period_meta=window_dict)
     else:
-        conn_df = assemble_net_conn(conn_dict, soz_inds, pz_inds,nz_inds)
+        conn_df = assemble_net_conn(conn_dict, soz_inds, pz_inds, nz_inds)
 
     conn_df['eventID'] = read_conn_struct(conn_obj, 'pdc', 'eventID')
     conn_df['patID'] = read_conn_struct(conn_obj, 'pdc', 'patID')
@@ -635,7 +635,7 @@ def center_onset(peri_df: pd.DataFrame, win_size = 5, center_designations=["0.0_
 def sample_seizures(peri_df, start_buffer=15, end_buffer=15, mid_sz_length=5, win_size=5, stride=1):
     """
     Returns index tracking all windows with zero centered at seizure onset and all seizures
-    ending at the same time. Seizure window is determiend by length of start_buffer + end_buffer + mid_sz_length
+    ending at the same time. Seizure window is determined by length of start_buffer + end_buffer + mid_sz_length
     Aligns all seizures in time while preserving transition windows into seizure 
     (start_buffer) and windows out of seizure (end_buffer. Seizures that do not 
     have the minumum number of windows for start and end will have np.nan values returned 
@@ -655,12 +655,12 @@ def sample_seizures(peri_df, start_buffer=15, end_buffer=15, mid_sz_length=5, wi
     sz_end = peri_df.sz_end.values[0]
 
     #Buffers define the minimally acceptable seizure length
-    if sz_end < start_buffer + mid_sz_length + end_buffer:
+    if sz_end < (start_buffer + mid_sz_length + end_buffer):
         return [np.nan for _ in range(peri_df.shape[0])]
 
     #pull out all windows leading up to (or after) seizure and the transition windows that we will preserve
     all_wins = np.unique(peri_df.win_sz_centered)
-    pre_wins =np.unique( peri_df[peri_df.win_sz_centered < start_buffer].win_sz_centered)
+    pre_wins = np.unique(peri_df[peri_df.win_sz_centered < start_buffer].win_sz_centered)
     post_wins = np.unique(peri_df[peri_df.win_sz_centered > sz_end-end_buffer].win_sz_centered)
     mid_wins = np.setdiff1d(all_wins, pre_wins) 
     mid_wins = np.setdiff1d(mid_wins, post_wins)
@@ -766,7 +766,7 @@ def center_windows(window_designations, periods, center_designations=["0.0_0.0_1
     if transition_ind == -1:
         return [np.nan for _ in periods]
     trans_period = periods[transition_ind]
-    centered_wins =periods - trans_period
+    centered_wins = periods - trans_period
     return centered_wins
 
 def find_transition(window_designations, center_designations):
