@@ -5,4 +5,4 @@ peri_para:
 ei_bal:
   num_cores : 20
 
-pipeline: 'trinode'
+pipeline: 'net'
