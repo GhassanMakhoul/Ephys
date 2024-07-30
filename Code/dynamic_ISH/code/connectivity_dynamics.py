@@ -158,7 +158,7 @@ def assemble_net_conn( pdc_dict,soz_inds,pz_inds,nz_inds,bands=BANDS,ref_stat=de
 
     Args:
         subj_id (_type_): string of subject id
-        pdc_dict (_type_): dictionary mapping period (str) to pdc (np.array)
+        pdc_dict (_type_): dictionary mapping period (int) to pdc (np.array)
         soz_inds (_type_): indices corresponding to soz nodes
         pz_inds (_type_): pz node indices
         nz_inds (_type_): nz node indices
