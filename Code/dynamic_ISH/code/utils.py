@@ -12,6 +12,7 @@ import pdb
 #data/stats
 import numpy as np
 import pandas as pd
+from scipy.stats import f_oneway, ttest_ind
 
 #specialty
 
@@ -79,6 +80,21 @@ def format_bipole(bipole):
 
 def format_bipoles(char_list):
     return [format_bipole(c) for c in char_list]
+
+def paried_region_significance(region_vals:dict)-> np.ndarray:
+    """Given a dictionary mapping region name to connectivity values
+    returns the pairwise N_reg x N_reg significance matrix
+
+    Args:
+        region_vals (dict): dictionary with keys as region names and values as region
+        connectivity values
+
+    Returns:
+        list[str], np.ndarray: region index names, N_reg x N _reg significance matrix
+        making all pairwise comparisons
+    """
+    return None
+
 
 def load_pdc(pdc_struct):
     """Loads pdc from the .mat struct that in SEEG, eyes closed resting
