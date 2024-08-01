@@ -886,9 +886,8 @@ def find_transition(window_designations, center_designations):
     except AssertionError:
         if len(set(window_designations)) < 3:
             return -1
-    if len(transition) > 1:
-        return transition[0]
-    return transition
+
+    return transition[0]
 
 def peri_net_pipeline(pathout, paths, num_cores=16, **kwargs):
     count = 0

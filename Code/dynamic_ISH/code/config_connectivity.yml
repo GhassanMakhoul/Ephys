@@ -1,8 +1,8 @@
 peri_para:
   stats : 'none'
-  num_cores : 1
+  num_cores : 4
   buffer : 60
-  verbose : True
+  verbose : False
 ei_bal:
   num_cores : 20
 
