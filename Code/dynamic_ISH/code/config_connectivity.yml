@@ -2,6 +2,7 @@ peri_para:
   stats : 'none'
   num_cores : 1
   buffer : 60
+  verbose : True
 ei_bal:
   num_cores : 20
 

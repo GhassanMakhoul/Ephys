@@ -158,10 +158,33 @@ def filter_dist(conn_mat:np.ndarray, dist_mat:np.ndarray, filt_dist:float)-> np.
     conn_mat[d_x, d_y] = np.nan
     return conn_mat
 
+def assemble_net_conn_selector(pdc_dict, soz_inds, pz_inds, nz_inds, chan_names, bands=BANDS, ref_stat=defaultdict(lambda: None), period_meta=defaultdict(lambda :''), verbose=False, **kwargs):
+    """Select function used to assemble net connectivity based on verbose value.
+
+    Args:
+        subj_id (_type_): string of subject id
+        pdc_dict (_type_): dictionary mapping period (str) to pdc (np.array)
+        soz_inds (_type_): indices corresponding to soz nodes
+        pz_inds (_type_): pz node indices
+        nz_inds (_type_): nz node indices
+
+    Returns:
+        _type_: Dataframe of next connectivity for each region.
+    """
+
+    if verbose:
+        # outputs a csv row for every bipole
+        net_df = assemble_net_conn_verbose(pdc_dict, soz_inds, pz_inds, nz_inds, chan_names, ref_stat=ref_stat, period_meta=period_meta)
+    else:
+        # averages SOZ, PZ, and NIZ electrodes within a sz event
+        net_df = assemble_net_conn(pdc_dict, soz_inds, pz_inds, nz_inds, ref_stat=ref_stat, period_meta=period_meta)
+
+    return net_df
+
 @logger.catch
-def assemble_net_conn(pdc_dict, soz_inds, pz_inds, nz_inds, chan_names, bands=BANDS, ref_stat=defaultdict(lambda: None), period_meta=defaultdict(lambda :'')):
+def assemble_net_conn_verbose(pdc_dict, soz_inds, pz_inds, nz_inds, chan_names, bands=BANDS, ref_stat=defaultdict(lambda: None), period_meta=defaultdict(lambda :'')):
     """Assemble net directed connectivity across periods of interest for all 
-    frequency bands
+    frequency bands without averaging by region
 
     Args:
         subj_id (_type_): string of subject id
@@ -214,6 +237,60 @@ def assemble_net_conn(pdc_dict, soz_inds, pz_inds, nz_inds, chan_names, bands=BA
     
     return net_df
 
+@logger.catch
+def assemble_net_conn(pdc_dict, soz_inds, pz_inds, nz_inds, bands=BANDS, ref_stat=defaultdict(lambda: None), period_meta=defaultdict(lambda :'')):
+    """Assemble net directed connectivity across periods of interest for all 
+    frequency bands with an average per region (SOZ, PZ, NIZ)
+
+    Args:
+        subj_id (_type_): string of subject id
+        pdc_dict (_type_): dictionary mapping period (int) to pdc (np.array)
+        soz_inds (_type_): indices corresponding to soz nodes
+        pz_inds (_type_): pz node indices
+        nz_inds (_type_): nz node indices
+
+    Returns:
+        _type_: Dataframe of next connectivity for each region.
+    """
+    cols = ['period', 'region', 'net_pdc', 'in_pdc', 'out_pdc', 'freq_band', 'window_designations']
+    
+    net_dict = {}
+
+    for period, pdc in pdc_dict.items():
+        period_designations = period_meta[period]
+        for b in range(len(bands)):
+            #TODO add z_score to interictal period and LOCK the reference!
+            mu_in, std_in = ref_stat['mu_in'], ref_stat['std_in']
+            z_pdc_in = z_score_conn(pdc[b, :,:],mu=mu_in[b,:],std=std_in[b,:],direction='col')
+            mu_out, std_out = ref_stat['mu_out'], ref_stat['std_out']
+            z_pdc_out = z_score_conn(pdc[b,:,:], mu=mu_out[:,b], std=std_out[:,b], direction='row')
+
+            band = bands[b]
+            
+            soz_in = np.nanmean(z_pdc_out[:,soz_inds])
+            soz_out = np.nanmean(z_pdc_in[soz_inds,:])
+            net_soz = soz_in - soz_out
+
+            for key,val in zip(cols,[period,'soz',net_soz,soz_in, soz_out, band,period_designations]):
+                net_dict = update_dict(net_dict,key,val)
+
+            if len(pz_inds) != 0:
+                pz_in = np.nanmean(z_pdc_out[:,pz_inds])
+                pz_out = np.nanmean(z_pdc_in[pz_inds,:])
+                net_pz = pz_in - pz_out
+                for key,val in zip(cols,[period,'pz',net_pz,pz_in, pz_out, band, period_designations]):
+                    net_dict = update_dict(net_dict,key,val)
+
+            nz_in = np.nanmean(z_pdc_out[:,nz_inds])
+            nz_out = np.nanmean(z_pdc_in[nz_inds,:])
+            net_nz = nz_in - nz_out
+            for key,val in zip(cols,[period,'nz',net_nz,nz_in, nz_out, band, period_designations]):
+                net_dict = update_dict(net_dict,key,val)
+
+    net_df = pd.DataFrame.from_dict(net_dict)
+    
+    return net_df
+
 def load_assemble_obj(path, **kwargs):
     """Loads the .mat object specified in path
     and runs the assemble_obj routine
@@ -247,16 +324,16 @@ def assemble_obj(conn_obj, wintype='full' ,**kwargs)->pd.DataFrame:
         window_dict = prep_window_dict(conn_obj)
         win_size = kwargs['win_size'] if "win_size" in kwargs.keys() else 5
         ref_stats= score_period(list(conn_dict.values()), window_dict, agg_win="interictal", win_size=win_size, **kwargs)
-        conn_df = assemble_net_conn(conn_dict, soz_inds, pz_inds, nz_inds, chan_names, ref_stat=ref_stats, period_meta=window_dict)
+        conn_df = assemble_net_conn_selector(conn_dict, soz_inds, pz_inds, nz_inds, chan_names, ref_stat=ref_stats, period_meta=window_dict, **kwargs)
     else:
-        conn_df = assemble_net_conn(conn_dict, soz_inds, pz_inds, nz_inds, chan_names)
+        conn_df = assemble_net_conn_selector(conn_dict, soz_inds, pz_inds, nz_inds, chan_names, **kwargs)
 
     conn_df['eventID'] = read_conn_struct(conn_obj, 'pdc', 'eventID')
     conn_df['patID'] = read_conn_struct(conn_obj, 'pdc', 'patID')
     conn_df['sz_type'] = read_conn_struct(conn_obj, 'pdc', 'sz_type')
     return conn_df
 
-def score_period(conn_mats, window_dict, agg_win="interictal", buffer=60, win_size=5, directed=True, stats='full',bands=BANDS):
+def score_period(conn_mats, window_dict, agg_win="interictal", buffer=60, win_size=5, directed=True, stats='full',bands=BANDS,**kwargs):
     """
     score a set of connectivity matrices, filtered by period criterion. 
     Establishes the set of reference values to compare other periods against.
@@ -825,8 +902,13 @@ def peri_net_pipeline(pathout, paths, num_cores=16, **kwargs):
     peri_dfs = pd.concat(peri_dfs)
     subj = peri_dfs.patID.values[0]
     assert len(set(peri_dfs.patID)) ==1, "mixing subjects, For now that's bad!"
-    peri_dfs.to_csv(os.path.join(pathout, f"peri_ictal_network_{subj}.csv"),index=False)
-    logger.success(f"Saving {subj} net periconnectivity in {pathout} as peri_ictal_network_{subj}.csv ")
+
+    if kwargs['verbose']:
+        fname = f"peri_ictal_network_verbose_{subj}.csv"
+    else:
+        fname = f"peri_ictal_network_{subj}.csv"
+    peri_dfs.to_csv(os.path.join(pathout, fname),index=False)
+    logger.success(f"Saving {subj} net periconnectivity in {pathout} as {fname} ")
 
 
 
