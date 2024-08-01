@@ -71,6 +71,15 @@ def get_node_labels(conn_obj):
     soz_designation = read_conn_struct(conn_obj, 'pdc','soz_per_seizure')
     return [map_label(ch) for ch in soz_designation]
 
+def get_chan_names(conn_obj):
+    """returns the name of each bipolar channel
+
+    Args:
+        conn_obj (_type_): 
+    """
+    chan_names = read_conn_struct(conn_obj, 'pdc','bip_labels_used')
+    return np.array([chan[0] for chan in chan_names])
+
 def get_reg_inds(pat_conn_labels):
     if type(pat_conn_labels) != np.ndarray:
         pat_conn_labels = np.array(pat_conn_labels)
@@ -150,7 +159,7 @@ def filter_dist(conn_mat:np.ndarray, dist_mat:np.ndarray, filt_dist:float)-> np.
     return conn_mat
 
 @logger.catch
-def assemble_net_conn(pdc_dict, soz_inds, pz_inds, nz_inds, bands=BANDS, ref_stat=defaultdict(lambda: None), period_meta=defaultdict(lambda :'')):
+def assemble_net_conn(pdc_dict, soz_inds, pz_inds, nz_inds, chan_names, bands=BANDS, ref_stat=defaultdict(lambda: None), period_meta=defaultdict(lambda :'')):
     """Assemble net directed connectivity across periods of interest for all 
     frequency bands
 
@@ -164,7 +173,7 @@ def assemble_net_conn(pdc_dict, soz_inds, pz_inds, nz_inds, bands=BANDS, ref_sta
     Returns:
         _type_: Dataframe of next connectivity for each region.
     """
-    cols = ['period', 'region', 'net_pdc', 'in_pdc', 'out_pdc', 'freq_band', 'window_designations']
+    cols = ['period', 'region', 'bip', 'in_pdc', 'out_pdc', 'freq_band', 'window_designations']
     
     net_dict = {}
 
@@ -179,33 +188,35 @@ def assemble_net_conn(pdc_dict, soz_inds, pz_inds, nz_inds, bands=BANDS, ref_sta
 
             band = bands[b]
             
-            soz_in = np.nanmean(z_pdc_out[:,soz_inds])
-            soz_out = np.nanmean(z_pdc_in[soz_inds,:])
-            net_soz = soz_in - soz_out
+            soz_ins = np.nanmean(z_pdc_out[:,soz_inds], axis=0)
+            soz_outs = np.nanmean(z_pdc_in[soz_inds,:], axis=1)
 
-            for key,val in zip(cols,[period,'soz',net_soz,soz_in, soz_out, band,period_designations]):
-                net_dict = update_dict(net_dict,key,val)
-
-            if len(pz_inds) != 0:
-                pz_in = np.nanmean(z_pdc_out[:,pz_inds])
-                pz_out = np.nanmean(z_pdc_in[pz_inds,:])
-                net_pz = pz_in - pz_out
-                for key,val in zip(cols,[period,'pz',net_pz,pz_in, pz_out, band, period_designations]):
+            for soz_in, soz_out, chan in zip(soz_ins, soz_outs, chan_names[soz_inds]):
+                for key,val in zip(cols,[period,'soz',chan,soz_in,soz_out,band,period_designations]):
                     net_dict = update_dict(net_dict,key,val)
 
-            nz_in = np.nanmean(z_pdc_out[:,nz_inds])
-            nz_out = np.nanmean(z_pdc_in[nz_inds,:])
-            net_nz = nz_in - nz_out
-            for key,val in zip(cols,[period,'nz',net_nz,nz_in, nz_out, band, period_designations]):
-                net_dict = update_dict(net_dict,key,val)
+            if len(pz_inds) != 0:
+                pz_ins = np.nanmean(z_pdc_out[:,pz_inds], axis=0)
+                pz_outs = np.nanmean(z_pdc_in[pz_inds,:], axis=1)
+                for pz_in, pz_out, chan in zip(pz_ins, pz_outs, chan_names[pz_inds]):
+                    for key,val in zip(cols,[period,'pz',chan,pz_in,pz_out,band,period_designations]):
+                        net_dict = update_dict(net_dict,key,val)
+
+            nz_ins = np.nanmean(z_pdc_out[:,nz_inds], axis=0)
+            nz_outs = np.nanmean(z_pdc_in[nz_inds,:], axis=1)
+
+            for nz_in, nz_out, chan in zip(nz_ins, nz_outs, chan_names[nz_inds]):
+                for key,val in zip(cols,[period,'nz',chan,nz_in,nz_out,band,period_designations]):
+                    net_dict = update_dict(net_dict,key,val)
 
     net_df = pd.DataFrame.from_dict(net_dict)
+    net_df.insert(loc=5,column='net_pdc',value=net_df.in_pdc - net_df.out_pdc)
     
     return net_df
 
 def load_assemble_obj(path, **kwargs):
     """Loads the .mat object specified in path
-    and runs the assemble _obj routine
+    and runs the assemble_obj routine
     
     Returns a pd.dataframe or None (if unable to load object) 
     """  
@@ -214,7 +225,7 @@ def load_assemble_obj(path, **kwargs):
         return pd.DataFrame()
     return assemble_obj(struct_obj, **kwargs)
 
-def assemble_obj( conn_obj, wintype='full' ,**kwargs)->pd.DataFrame:
+def assemble_obj(conn_obj, wintype='full' ,**kwargs)->pd.DataFrame:
     """For a given subject's connectivity struct, return the dataframe containing net
     connectivity for each frequency band, over relevant periods
     NOTE: this will only work with DIRECTED connectivity
@@ -227,9 +238,7 @@ def assemble_obj( conn_obj, wintype='full' ,**kwargs)->pd.DataFrame:
         pd.DataFrame: net connectivity
     """
 
-    
-    # conn_obj = load_mat(conn_f) # preload for fast performance
-    conn_dict, label_inds = prep_conn(conn_obj, wintype, **kwargs)
+    conn_dict, label_inds, chan_names = prep_conn(conn_obj, wintype, **kwargs)
     soz_inds, pz_inds, nz_inds = label_inds['soz'], label_inds['pz'], label_inds['nz']
 
     #get mu and std to Z-score against interictal period
@@ -238,9 +247,9 @@ def assemble_obj( conn_obj, wintype='full' ,**kwargs)->pd.DataFrame:
         window_dict = prep_window_dict(conn_obj)
         win_size = kwargs['win_size'] if "win_size" in kwargs.keys() else 5
         ref_stats= score_period(list(conn_dict.values()), window_dict, agg_win="interictal", win_size=win_size, **kwargs)
-        conn_df = assemble_net_conn(conn_dict, soz_inds, pz_inds, nz_inds, ref_stat=ref_stats, period_meta=window_dict)
+        conn_df = assemble_net_conn(conn_dict, soz_inds, pz_inds, nz_inds, chan_names, ref_stat=ref_stats, period_meta=window_dict)
     else:
-        conn_df = assemble_net_conn(conn_dict, soz_inds, pz_inds, nz_inds)
+        conn_df = assemble_net_conn(conn_dict, soz_inds, pz_inds, nz_inds, chan_names)
 
     conn_df['eventID'] = read_conn_struct(conn_obj, 'pdc', 'eventID')
     conn_df['patID'] = read_conn_struct(conn_obj, 'pdc', 'patID')
@@ -340,7 +349,8 @@ def prep_conn( conn_obj, wintype='full', **kwargs):
         conn_dict = get_conn_dict_summary(conn_obj, **kwargs)
     pat_conn_labels = get_node_labels(conn_obj)
     label_inds = get_reg_inds(pat_conn_labels)
-    return conn_dict, label_inds
+    chan_names = get_chan_names(conn_obj)
+    return conn_dict, label_inds, chan_names
 
 
 def get_regions( conn_obj):
