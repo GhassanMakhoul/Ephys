@@ -20,6 +20,7 @@ from scipy.stats import f_oneway, ttest_ind
 BANDS = ['delta', 'theta','alpha', 'beta', 'gamma_low','gamma_high']
 DIR = '/mnt/ernie_main/000_Data/SEEG/SEEG_EyesClosed_RestingState/results/Graham_81pats/PDC_RestingState/'
 DTYPE = h5py.special_dtype(vlen=str)
+COLOR_MAP= {'pz':'#D95319', 'soz': "#A2142F", "nz":"#0072BD",  'nz_pz': '#D95319', 'nz_soz': "#A2142F", "nz_nz":"#0072BD"}
 
 def load_mat(f):
     """Loads structs and attmpts to use scipy's loadmat functionality or 
@@ -93,7 +94,17 @@ def paried_region_significance(region_vals:dict)-> np.ndarray:
         list[str], np.ndarray: region index names, N_reg x N _reg significance matrix
         making all pairwise comparisons
     """
-    return None
+    reg_keys = list(region_vals.keys())
+    n = len(reg_keys)
+    sig_mat = np.ones((n,n))
+    for i in range(n):
+        dist_a = region_vals[reg_keys[i]]
+        for j in range(n):
+            if i ==j:
+                continue
+            dist_b = region_vals[reg_keys[j]]
+            sig_mat[i,j] = ttest_ind(dist_a, dist_b, permutations=100)[1]
+    return reg_keys, sig_mat
 
 
 def load_pdc(pdc_struct):
