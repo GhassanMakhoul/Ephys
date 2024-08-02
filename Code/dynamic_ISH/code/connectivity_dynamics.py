@@ -163,7 +163,7 @@ def assemble_net_conn_selector(pdc_dict, soz_inds, pz_inds, nz_inds, chan_names,
 
     Args:
         subj_id (_type_): string of subject id
-        pdc_dict (_type_): dictionary mapping period (str) to pdc (np.array)
+        pdc_dict (_type_): dictionary mapping period (int) to pdc (np.array)
         soz_inds (_type_): indices corresponding to soz nodes
         pz_inds (_type_): pz node indices
         nz_inds (_type_): nz node indices
@@ -704,18 +704,24 @@ def center_onset(peri_df: pd.DataFrame, win_size=5, stride=1, center_designation
         the transition point into the ictal state
     """
     centered_dfs = []
+    subj = peri_df.patID.values[0]
     for event in set(peri_df.eventID): #NOTE: could this be a groupby apply?
         event_df = peri_df[peri_df.eventID == event]
-        event_df['win_sz_centered'] = center_windows(event_df.window_designations, event_df.period.values,center_designations=center_designations)
-        if event_df.win_sz_centered.isna().all():
-            event_df['sz_end'] = np.nan
-            event_df['win_sz_st_end'] = np.nan
-            event_df['win_label'] = np.nan
-        else:
-            event_df['sz_end'] = get_sz_end(event_df)
-            event_df['win_sz_st_end'] = sample_seizures(event_df, start_buffer=10, end_buffer=10, mid_sz_length=10, win_size=5)
-            event_df['win_label'] = event_df.apply(label_window, args=[win_size, stride], axis=1)
-        centered_dfs.append(event_df)
+        try:
+            event_df['win_sz_centered'] = center_windows(event_df.window_designations, event_df.period.values,center_designations=center_designations)
+            if event_df.win_sz_centered.isna().all():
+                event_df['sz_end'] = np.nan
+                event_df['win_sz_st_end'] = np.nan
+                event_df['win_label'] = np.nan
+            else:
+                event_df['sz_end'] = get_sz_end(event_df)
+                event_df['win_sz_st_end'] = sample_seizures(event_df, start_buffer=10, end_buffer=10, mid_sz_length=10, win_size=5)
+                event_df['win_label'] = event_df.apply(label_window, args=[win_size, stride], axis=1)
+            centered_dfs.append(event_df)
+        except IndexError as e:
+            logger.warning(f"Issue centering {subj} on event: {event}.\nMore details: {e}")
+        except ValueError as e:
+            logger.warning(f"Issue centering {subj} on event: {event}.\nMore details: {e}")
     
     return pd.concat(centered_dfs)
 
