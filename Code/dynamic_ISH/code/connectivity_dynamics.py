@@ -963,7 +963,7 @@ def find_transition(window_designations, center_designations):
 
     return transition[0]
 
-def peri_net_pipeline(pathout, paths, num_cores=16, verbose=False, **kwargs):
+def peri_net_pipeline(pathout, paths, num_cores=16, **kwargs):
     count = 0
     peri_dfs = []
     #NOTE THIS assumes that the subject list is the same for all runs
