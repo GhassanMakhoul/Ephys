@@ -211,12 +211,12 @@ def assemble_net_conn_verbose(pdc_dict, soz_inds, pz_inds, nz_inds, chan_names, 
 
             band = bands[b]
             
-            soz_ins = np.nanmean(z_pdc_out[:,soz_inds], axis=0)
-            soz_outs = np.nanmean(z_pdc_in[soz_inds,:], axis=1)
-
-            for soz_in, soz_out, chan in zip(soz_ins, soz_outs, chan_names[soz_inds]):
-                for key,val in zip(cols,[period,'soz',chan,soz_in,soz_out,band,period_designations]):
-                    net_dict = update_dict(net_dict,key,val)
+            if len(soz_inds) != 0:
+                soz_ins = np.nanmean(z_pdc_out[:,soz_inds], axis=0)
+                soz_outs = np.nanmean(z_pdc_in[soz_inds,:], axis=1)
+                for soz_in, soz_out, chan in zip(soz_ins, soz_outs, chan_names[soz_inds]):
+                    for key,val in zip(cols,[period,'soz',chan,soz_in,soz_out,band,period_designations]):
+                        net_dict = update_dict(net_dict,key,val)
 
             if len(pz_inds) != 0:
                 pz_ins = np.nanmean(z_pdc_out[:,pz_inds], axis=0)
@@ -571,28 +571,89 @@ def long_to_mat(long_mat:np.ndarray)-> np.ndarray:
         conn_mat[b,:,:] = long_mat[b][0]
     return conn_mat
 
-def conn_to_flow_df(conn_mat:np.ndarray, reg_inds:dict)->pd.DataFrame:
-    """Converts a connectivity matrix to a df containing generalized 
-    directed connectivity in a source -> target , value format
+def conn_to_flow_dict_selector(conn_mat, reg_inds, window_dict, period, chan_names, band, flow_dict, verbose=False, **kwargs):
+    """Selects function for creating flow dictionary
 
     Args:
         conn_mat (np.ndarray): NxN connectivity matrix
         reg_inds (dict): description of regions of interest to summarize long (SOZ,PZ, etc)
+        window_dict (dict): window designations associated with each period
+        period (int): time period
+        flow_dict (dict): master dictionary to update
 
     Returns:
-        pd.DataFrame: dataframe with source to target, and values as a ratio of total connectivity
+        dict: keys include source, target, mean connectivity, period, and window_designation
     """
-    flow_targets = [(src, trgt) for src in reg_inds.keys() for trgt in reg_inds.keys()]
-    flow_df = pd.DataFrame(columns=['source','target','value'])
-    # total_conn = np.nansum(conn_mat)
-    for i, (src, trgt) in enumerate(flow_targets):
+
+    if verbose:
+        # outputs a csv row for every bipole
+        flow_dict = conn_to_flow_dict_verbose(conn_mat, reg_inds, window_dict, period, chan_names, band, flow_dict)
+    else:
+        # averages SOZ, PZ, and NIZ electrodes within a sz event
+        flow_dict = conn_to_flow_dict(conn_mat, reg_inds, window_dict, period, band, flow_dict)
+
+    return flow_dict
+
+def conn_to_flow_dict(conn_mat:np.ndarray, reg_inds:dict, window_dict, period, band, flow_dict)->dict:
+    """Converts a connectivity matrix to a dict containing generalized 
+    directed connectivity in a source -> target , value format per region
+
+    Args:
+        conn_mat (np.ndarray): NxN connectivity matrix
+        reg_inds (dict): description of regions of interest to summarize long (SOZ,PZ, etc)
+        window_dict (dict): window designations associated with each period
+        period (int): time period
+        flow_dict (dict): master dictionary to update
+
+    Returns:
+        dict: keys include source, target, mean connectivity, period, and window_designation
+    """
+    # only includes categories with at least one electrode
+    flow_targets = [(src, trgt) for src in reg_inds.keys() for trgt in reg_inds.keys() if (reg_inds[src].size & reg_inds[trgt].size)]
+    keys = ['source','target','value','period','window_designations', 'freq_band']
+
+    for (src, trgt) in flow_targets:
         src_inds = reg_inds[src]
         trgt_inds = reg_inds[trgt]
-        src_rows = conn_mat[src_inds,:]
-        src_trgt_conns = np.nanmean(src_rows[:,trgt_inds]) 
-        flow_df.loc[i] = [src,trgt,src_trgt_conns]
-    return flow_df
 
+        src_rows = conn_mat[src_inds,:]
+        src_trgt_conns = np.nanmean(src_rows[:,trgt_inds])
+
+        for key, val in zip(keys,(src,trgt,src_trgt_conns,period,window_dict[period],band)):
+            flow_dict = update_dict(flow_dict, key, val)
+
+    return flow_dict
+
+def conn_to_flow_dict_verbose(conn_mat:np.ndarray, reg_inds:dict, window_dict, period, chan_names, band, flow_dict)->dict:
+    """Converts a connectivity matrix to a dict containing generalized 
+    directed connectivity in a source -> target , value format per bipolar channel
+
+    Args:
+        conn_mat (np.ndarray): NxN connectivity matrix
+        reg_inds (dict): description of regions of interest to summarize long (SOZ,PZ, etc)
+        window_dict (dict): window designations associated with each period
+        period (int): time period
+        flow_dict (dict): master dictionary to update
+
+    Returns:
+        dict: keys include source, target, mean connectivity, period, and window_designation
+    """
+    # only includes categories with at least one electrode
+    flow_targets = [(src, trgt) for src in reg_inds.keys() for trgt in reg_inds.keys() if (reg_inds[src].size & reg_inds[trgt].size)]
+    keys = ['source','target','src_bip','value','period','window_designations','freq_band']
+
+    for (src, trgt) in flow_targets:
+        src_inds = reg_inds[src]
+        trgt_inds = reg_inds[trgt]
+
+        for src_ind in src_inds:
+            src_rows = conn_mat[src_ind,:]
+            src_trgt_conns = np.nanmean(src_rows[trgt_inds])
+            src_bip = chan_names[src_ind]
+            for key, val in zip(keys,(src,trgt,src_bip,src_trgt_conns,period,window_dict[period],band)):
+                flow_dict = update_dict(flow_dict, key, val)
+
+    return flow_dict
 
 def gen_flow_dfs(pathout, inp_paths, num_cores =1, **kwargs)->None:
     """generates a tri-node summary or a given subjects connectivity matrices
@@ -617,10 +678,15 @@ def gen_flow_dfs(pathout, inp_paths, num_cores =1, **kwargs)->None:
     
     subj_dfs = pd.concat(subj_dfs)
     subj = subj_dfs.patID.values[0]
-    subj_dfs.to_csv(os.path.join(pathout, f'peri_ictal_flow_{subj}.csv'), index=False)
-    logger.success(f'Saving {subj} 3-node view of {len(inp_paths)} seizures to {pathout} as peri_ictal_flow_{subj}.csv')
+    if kwargs['verbose']:
+        fname = f"peri_ictal_flow_verbose_{subj}.csv"
+    else:
+        fname = f"peri_ictal_flow_{subj}.csv"
+    
+    subj_dfs.to_csv(os.path.join(pathout, fname), index=False)
+    logger.success(f'Saving {subj} 3-node view of {len(inp_paths)} seizures to {pathout} as {fname}')
 
-def map_subject_to_flow(pat_file, filt_dist=0, **kwargs ):
+def map_subject_to_flow(pat_file, filt_dist=0, **kwargs):
     """_summary_
 
     Args:
@@ -628,29 +694,31 @@ def map_subject_to_flow(pat_file, filt_dist=0, **kwargs ):
         conn_obj (_type_): _description_
         filt_dist (int, optional): _description_. Defaults to 0.
     """
-    flow_dfs = []
+
+    flow_dict = {}
     pat_obj = load_mat(pat_file)
 
     subj_id = read_conn_struct(pat_obj, 'pdc', 'patID')
-    pdc_dict, label_inds = prep_conn(pat_obj, wintype='full',filt_dist=filt_dist, **kwargs)
+    # NOTE: need to add functionality for retaining all channels
+    pdc_dict, label_inds , chan_names = prep_conn(pat_obj, wintype='full',filt_dist=filt_dist, **kwargs)
     window_dict = prep_window_dict(pat_obj)
     if label_inds['pz'].shape[0] == 0:
         print(f"Subj {subj_id} has no PZ designation for the following struct {pat_file}")
-        logger.warning(f"Subj {subj_id} has no PZ zone!")
+        logger.warning(f"Subj {subj_id} has no PZ channels!")
+    if label_inds['soz'].shape[0] == 0:
+        print(f"Subj {subj_id} has no SOZ designation for the following struct {pat_file}")
+        logger.warning(f"Subj {subj_id} has no SOZ channels!")
     
     for period, pdc in pdc_dict.items():
-        for b, _ in enumerate(BANDS):
-            conn_mat = pdc[b,:,:]
-            df = conn_to_flow_df(conn_mat, label_inds)
-            df['period'] = period
-            df['window_designationas'] = window_dict[period]
-            flow_dfs.append(df)
+        for i, band in enumerate(BANDS):
+            conn_mat = pdc[i,:,:]
+            flow_dict = conn_to_flow_dict_selector(conn_mat, label_inds, window_dict, period, chan_names, band, flow_dict, **kwargs)
     
-    flow_dfs = pd.concat(flow_dfs)
-    flow_dfs['eventID'] = read_conn_struct(pat_obj, 'pdc', 'eventID')
-    flow_dfs['patID'] = subj_id
-    flow_dfs['sz_type'] = read_conn_struct(pat_obj, 'pdc', 'sz_type')
-    return flow_dfs
+    flow_df = pd.DataFrame.from_dict(flow_dict)
+    flow_df['eventID'] = read_conn_struct(pat_obj, 'pdc', 'eventID')
+    flow_df['patID'] = subj_id
+    flow_df['sz_type'] = read_conn_struct(pat_obj, 'pdc', 'sz_type')
+    return flow_df
     
 
 def load_structs(file_list, cores=12, **kwargs)->list[dict]:
@@ -685,7 +753,7 @@ def center_onset(peri_df: pd.DataFrame, win_size=5, stride=1, center_designation
     """Given a dataframe with each row matching net connectivity per period
     and a string representation of the beginning_middle_end of each window designation, 
     this method returns a modified dataframe with a "win_sz_centered" column that counts up to 
-    the seizure transistion. The new window counts will have transitions at zero. This
+    the seizure transition. The new window counts will have transitions at zero. This
     will allow you to align all peri-ictal dynamics according to the transition point of seizures
     This method will also add a "period_label" column with the following labels
     "Interictal, pre_ictal, transition_into_sz, ictal, transition out, post_ictal"
@@ -889,7 +957,7 @@ def find_transition(window_designations, center_designations):
 
     return transition[0]
 
-def peri_net_pipeline(pathout, paths, num_cores=16, **kwargs):
+def peri_net_pipeline(pathout, paths, num_cores=16, verbose=False, **kwargs):
     count = 0
     peri_dfs = []
     #NOTE THIS assumes that the subject list is the same for all runs
