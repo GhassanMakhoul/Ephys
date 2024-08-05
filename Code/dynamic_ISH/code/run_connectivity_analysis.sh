@@ -10,7 +10,7 @@ Help()
 {
     #Display Help
     echo "This script calls the connectivity_dynamics.py python file"
-    echo "Syntax: scriptTemplate [-g|h|v|V]"
+    echo "Syntax: scriptTemplate [-h|i|o|c|l|s]"
     echo "options:"
     echo "  -h     Print this Help."
     echo "  -i     input directory"
@@ -57,7 +57,7 @@ done
 if [ "$SUBJ" = "all" ]; then
     for d in $INP_DIR*/; do 
         echo Running connectivity on $d 
-        echo python connectivity_dynamics.py -d $d -p $OUT_DIR -l $LOG_DIR -c $CONFIG_FILE
+        python connectivity_dynamics.py -d $d -p $OUT_DIR -l $LOG_DIR -c $CONFIG_FILE
     done
     exit;
 fi
@@ -66,7 +66,9 @@ fi
 read -r -a splitArray <<<"$SUBJ"
 
 for a in "${splitArray[@]}"; do
-    echo $INP_DIR"$a"
+    echo Running for subj: $a
+    python connectivity_dynamics.py -d $INP_DIR"$a"/ -p $OUT_DIR -l $LOG_DIR -c $CONFIG_FILE
+
 done
 #else if subj = list
 
