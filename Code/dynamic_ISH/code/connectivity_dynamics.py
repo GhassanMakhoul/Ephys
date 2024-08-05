@@ -930,7 +930,7 @@ def main(argv):
             logdir = arg
     
 
-    logger.add(os.path.join(logdir, f"connectivity_dynamics_run.log"), enqueue=True,level=40)
+    logger.add(os.path.join(logdir, "connectivity_dynamics_run.log"), enqueue=True,level=40)
     with open(config_f, 'r') as f:
             config =  yaml.safe_load(f)
 
