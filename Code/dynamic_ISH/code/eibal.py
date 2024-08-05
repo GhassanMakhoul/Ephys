@@ -133,7 +133,7 @@ def get_reg_ei(subj_obj, window='full')->pd.DataFrame:
             df['e_i'] = ei_vals
             df['region'] = reg
             df['period'] = key
-            df['window_designation'] = window_designation
+            df['window_designations'] = window_designation
             ei_dfs.append(df)
     ei_dfs = pd.concat(ei_dfs)
     ei_dfs ['patID'] = subj
