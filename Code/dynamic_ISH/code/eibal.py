@@ -93,6 +93,55 @@ def gen_contact_peri_psd(subj_obj, spectral_keys, contact_labels)->pd.DataFrame:
         spectral_dfs.append(df)
     return pd.concat(spectral_dfs)
 
+def assemble_psd_verbose(subj_obj, sz_band='beta',window='full'):
+    
+    freqs = read_conn_struct(subj_obj, 'pdc','pwelch_freqs')
+    if window == 'full':
+        window_dict = prep_window_dict(subj_obj)
+        pwelch_all_windows = read_conn_struct(subj_obj,'pdc','pwelch_all_windowed')
+
+    psd_dfs = []
+    bip_names = get_chan_names(subj_obj)
+    soz_per_szr = read_conn_struct(subj_obj, 'pdc', 'soz_per_seizure')
+    contact_label = format_soz(soz_per_szr)
+    freqs = read_conn_struct(subj_obj, 'pdc', 'pwelch_freqs')
+    subj = read_conn_struct(subj_obj,'pdc','patID')
+    sz_type = read_conn_struct(subj_obj,'pdc', 'sz_type')
+    eventID = read_conn_struct(subj_obj, 'pdc','eventID')
+    for key, window_designation in window_dict.items():
+        pwelch = pwelch_all_windows[key, :,:]
+        band_pow = get_power(pwelch, sz_band, freqs)
+        df = pd.DataFrame(data=band_pow,columns=[f"power_{sz_band}"])
+        df.insert(loc=1, column='region', value=contact_label)
+        df.insert(loc=1, column='bip', value=bip_names)
+        df.insert(loc=1, column='period', value=key)
+        df.insert(loc=1, column='window_designations', value=window_designation)
+        psd_dfs.append(df)
+    psd_dfs = pd.concat(psd_dfs)
+    psd_dfs.insert(loc=1, column='patID', value = subj)
+    psd_dfs.insert(loc=1, column='sz_type', value=sz_type)
+    psd_dfs.insert(loc=1, column='eventID',value= eventID)
+    return psd_dfs
+        
+def get_power(psd, freq, freq_inds):
+    """Return the area under the curve of the PSD in the frequency range of interes
+
+    Args:
+        psd (np.ndarray): 2D array of PSD's shape should be N_ch x n_freq
+        freq (str): frequency range of interest, 
+        freq_inds (np.npdarray) : array of frequency bins, each entry should correspond to a
+                    frequency bin measured by PSD
+    ReturnsL
+        np.ndarray of AUC for frequency of interest for N_ch's
+    """
+    psd = np.log(psd)
+    lo, hi = BAND_RANGES[freq]
+    inds_h = np.where(freq_inds <= hi)
+    inds_l = np.where(freq_inds > lo)
+    inds  = np.intersect1d(inds_h, inds_l)
+    widths = np.diff(freq_inds) #NOTE: that this may be off by 1!
+
+    return np.dot(psd[:,inds], widths[inds])
 
 
 def get_reg_ei(subj_obj, window='full')->pd.DataFrame:

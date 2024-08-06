@@ -23,6 +23,10 @@ DIR = '/mnt/ernie_main/000_Data/SEEG/SEEG_EyesClosed_RestingState/results/Graham
 DTYPE = h5py.special_dtype(vlen=str)
 COLOR_MAP= {'pz':'#D95319', 'soz': "#A2142F", "nz":"#0072BD",  'nz_pz': '#D95319', 'nz_soz': "#A2142F", "nz_nz":"#0072BD"}
 
+BANDS = ['delta', 'theta', 'alpha', 'beta','gamma_l', 'gamma_H']
+#NOTE: the distinctino between gamma low and gamma high is kind of arbitrary
+BAND_RANGES = dict(zip(BANDS, [(0.01, 4), (4, 8), (8, 12), (12, 30),(30,60),(60,120) ]))
+
 def load_mat(f):
     """Loads structs and attmpts to use scipy's loadmat functionality or 
     mat73. Some structs from older matlab work with scipy while others need mat73
