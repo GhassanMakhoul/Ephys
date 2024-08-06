@@ -30,9 +30,7 @@ from utils import *
 
 TIMELINE_F = '/mnt/ernie_main/000_Data/SEEG/SEEG_Periictal/data/Extracted_Per_Event_Interictal/all_time_data_01042023_212306.csv'
 SEEG_FOLDER = '/mnt/ernie_main/000_Data/SEEG/SEEG_Entire_EMU_Downloads/data/'
-BANDS = ['delta', 'theta', 'alpha', 'beta','gamma_l', 'gamma_H']
-#NOTE: the distinctino between gamma low and gamma high is kind of arbitrary
-BAND_RANGES = dict(zip(BANDS, [(0.01, 4), (4, 8), (8, 12), (12, 30),(30,60),(60,120) ]))
+
 PERIOD = ['inter','pre','ictal','post']
 
 pandarallel.initialize()
@@ -415,6 +413,16 @@ def filter_periods(conn_mats, window_dict, agg_win, buffer, win_size):
     return conn_mats    
 
 def prep_window_dict(conn_obj):
+    """Given a patient struct, returns a dictionary of window_designations mapped
+    keyed by window number. Should allow for finding transistions in seizure onset and 
+    centering the seizure period.
+
+    Args:
+        conn_obj (_type_): loaded matlab struct from peri-ictal dataset. 
+
+    Returns:
+        _type_: dictionary mapping period_number -> window_designation.
+    """
     w_end = read_conn_struct(conn_obj, 'pdc', 'window_end_state')
     w_start = read_conn_struct(conn_obj, 'pdc', 'window_start_state')
     w_mid = read_conn_struct(conn_obj, 'pdc' ,'window_middle_state')
