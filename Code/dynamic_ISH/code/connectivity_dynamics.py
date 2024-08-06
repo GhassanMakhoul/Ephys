@@ -32,6 +32,7 @@ TIMELINE_F = '/mnt/ernie_main/000_Data/SEEG/SEEG_Periictal/data/Extracted_Per_Ev
 SEEG_FOLDER = '/mnt/ernie_main/000_Data/SEEG/SEEG_Entire_EMU_Downloads/data/'
 BANDS = ['delta', 'theta', 'alpha', 'beta','gamma_l', 'gamma_H']
 PERIOD = ['inter','pre','ictal','post']
+
 pandarallel.initialize()
 
 
@@ -856,22 +857,17 @@ def sample_seizures(peri_df, start_buffer=15, end_buffer=15, mid_sz_length=5, wi
     mid_wins = np.setdiff1d(all_wins, pre_wins) 
     mid_wins = np.setdiff1d(mid_wins, post_wins)
 
-    #resample middle windows
-    mid_sample = np.random.choice(mid_wins, mid_sz_length)
-    # remap periods centered at seizure onset to start at seizure onset and sync middle seizure window
-    # indices 
-    keep_wins = np.union1d(pre_wins, mid_sample )
-    keep_wins = np.union1d(keep_wins, post_wins)
-    try:
-        remap_periods = dict(zip(keep_wins,[i for i in range(np.min(keep_wins), np.min(keep_wins)+keep_wins.shape[0])]))
-    except TypeError:
-        pdb.set_trace()
+    # resample middle windows such that all windows are compressed into mid_sz_length
+    # example: 10-30 with mid_sz_length 5 is mapped to 10,10,10,10,11,11,11,11,etc.
+    mid_sample = np.array([i+start_buffer for i, arr in enumerate(np.array_split(mid_wins,mid_sz_length)) for _ in range(arr.size)])
 
-    #TODO: finish logic!
-    resampled_periods = peri_df.win_sz_centered.parallel_apply(lambda x: remap_periods[x] if x in keep_wins else np.nan)
+    # shift post_wins back to begin at start_buffer + mid_sz_length
+    post_resample = (post_wins - sz_end + end_buffer - 1 + start_buffer + mid_sz_length)
+    resampled_wins = np.hstack((pre_wins, mid_sample, post_resample))
+    remap_periods = dict(zip(all_wins,resampled_wins))
+    resampled_periods = peri_df.win_sz_centered.parallel_apply(lambda x: remap_periods[x])
+
     return resampled_periods
-
-
     
 def get_sz_end(peri_df, use_col='win_sz_centered'):
     """Given a calculated peri-ictal connectivity df, returns the period to reference 
