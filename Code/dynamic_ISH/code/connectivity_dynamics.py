@@ -778,13 +778,13 @@ def center_onset(peri_df: pd.DataFrame, win_size=5, stride=1, center_designation
     subj = peri_df.patID.values[0]
     for event in set(peri_df.eventID): #NOTE: could this be a groupby apply?
         event_df = peri_df[peri_df.eventID == event]
-        # try:
-        centered_event_df = center_event_df(win_size, stride, center_designations, event_df, **kwargs)
-        centered_dfs.append(centered_event_df)
-        # except IndexError as e:
-        #     logger.warning(f"Issue centering {subj} on event: {event}.\nMore details: {e}")
-        # except ValueError as e:
-        #     logger.warning(f"Issue centering {subj} on event: {event}.\nMore details: {e}")
+        try:
+            centered_event_df = center_event_df(win_size, stride, center_designations, event_df, **kwargs)
+            centered_dfs.append(centered_event_df)
+        except IndexError as e:
+             logger.warning(f"Issue centering {subj} on event: {event}.\nMore details: {e}")
+        except ValueError as e:
+             logger.warning(f"Issue centering {subj} on event: {event}.\nMore details: {e}")
     
     return pd.concat(centered_dfs)
 
