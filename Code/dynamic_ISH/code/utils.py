@@ -53,6 +53,29 @@ def split_bipole(bip_df: pd.DataFrame):
 
     return pd.concat([bip_df,df2])
 
+
+def resample_agg_df(verbose_df :pd.DataFrame, resamp_col: str, unique_measures = ['freq_band'], resamp_schema='balance',**kwargs):
+    """Given a dataframe with imbalanced samples, returns a resampled AND summarized dataframe, accounting
+    for imbalances in subgroups. For example, if the dataframe is a contact level net connectivity dataframe, there
+    may be 200 contacts total and 10 of them may be SOZ's vs 190 NIZ's. A resampled df for boostrapping may then 
+    balance SOZ's and NIZ's such that there are 10 NIZ's and 10 SOZ's. Then the aggregator would generate summary
+    statistics (mean, variance, median, etc.) over this balanced dataframe. A proper boostrapping pipeline will
+    call this method many many times in order to proper sample the dataset.
+
+    Args:
+        verbose_df (pd.DataFrame): dataframe with imbalanced subgroups, rows may contain repeat measures which are accounted for
+        in the repeat measures keyword arg. 
+        resamp_col (str): column to balance dataset against
+        unique_measures (list[str], optional) :  List of columns of different measures
+            for single data point , most often frequency bands. Used to make a UID per row.
+              Defaults to '', indicating no repeat measures .
+        resamp_schema (str, optional): resampling schema defaults to perfectly balancing the dataset
+                    also allowed to send in proportions dictionary. Defaults to 'balance'.
+    """
+    return NotImplementedError
+
+
+
 def map_label(label):
     label = int(label)
     match label:

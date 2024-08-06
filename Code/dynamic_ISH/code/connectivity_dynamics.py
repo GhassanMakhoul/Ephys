@@ -15,6 +15,7 @@ from collections import Counter, defaultdict
 import pandas as pd
 import numpy as np
 import copy
+from pandarallel import pandarallel
 
 
 import seaborn as sns
@@ -31,6 +32,9 @@ TIMELINE_F = '/mnt/ernie_main/000_Data/SEEG/SEEG_Periictal/data/Extracted_Per_Ev
 SEEG_FOLDER = '/mnt/ernie_main/000_Data/SEEG/SEEG_Entire_EMU_Downloads/data/'
 BANDS = ['delta', 'theta', 'alpha', 'beta','gamma_l', 'gamma_H']
 PERIOD = ['inter','pre','ictal','post']
+
+pandarallel.initialize()
+
 
 #configure logging
 deflogger= logging.getLogger(__name__)
@@ -749,7 +753,7 @@ def assemble_peri_obj_para(struct_paths:list[str], cores =12, **kwargs):
     dfs = [df for df in dfs if not df.empty]
     return pd.concat(dfs)
 
-def center_onset(peri_df: pd.DataFrame, win_size=5, stride=1, center_designations=["0.0_0.0_1.0", "0.0_1.0_1.0"])->pd.DataFrame:
+def center_onset(peri_df: pd.DataFrame, win_size=5, stride=1, center_designations=["0.0_0.0_1.0", "0.0_1.0_1.0"], **kwargs)->pd.DataFrame:
     """Given a dataframe with each row matching net connectivity per period
     and a string representation of the beginning_middle_end of each window designation, 
     this method returns a modified dataframe with a "win_sz_centered" column that counts up to 
@@ -776,22 +780,49 @@ def center_onset(peri_df: pd.DataFrame, win_size=5, stride=1, center_designation
     for event in set(peri_df.eventID): #NOTE: could this be a groupby apply?
         event_df = peri_df[peri_df.eventID == event]
         try:
-            event_df['win_sz_centered'] = center_windows(event_df.window_designations, event_df.period.values,center_designations=center_designations)
-            if event_df.win_sz_centered.isna().all():
-                event_df['sz_end'] = np.nan
-                event_df['win_sz_st_end'] = np.nan
-                event_df['win_label'] = np.nan
-            else:
-                event_df['sz_end'] = get_sz_end(event_df)
-                event_df['win_sz_st_end'] = sample_seizures(event_df, start_buffer=10, end_buffer=10, mid_sz_length=10, win_size=5)
-                event_df['win_label'] = event_df.apply(label_window, args=[win_size, stride], axis=1)
-            centered_dfs.append(event_df)
+            centered_event_df = center_event_df(win_size, stride, center_designations, event_df, **kwargs)
+            centered_dfs.append(centered_event_df)
         except IndexError as e:
-            logger.warning(f"Issue centering {subj} on event: {event}.\nMore details: {e}")
+             logger.warning(f"Issue centering {subj} on event: {event}.\nMore details: {e}")
         except ValueError as e:
-            logger.warning(f"Issue centering {subj} on event: {event}.\nMore details: {e}")
+             logger.warning(f"Issue centering {subj} on event: {event}.\nMore details: {e}")
     
     return pd.concat(centered_dfs)
+
+def center_event_df(win_size, stride, center_designations, event_df, **kwargs)-> pd.DataFrame:
+    """center an event_level data frame: see center_onset above
+
+    Args:
+        win_size (_type_): _description_
+        stride (_type_): _description_
+        center_designations (_type_): _description_
+        event_df (_type_): _description_
+
+    Returns:
+        pd.DataFrame: _description_
+    """
+    ##This bit of code will help to reduce the redundancy of the event_df
+    ## We will take advantage of the fact that dictionaries
+    ## are guaranteed to be ordered in order to remove redundant rows
+    # 
+    p_d_dict = dict(zip(event_df.period, event_df.window_designations))
+    periods, window_designations = np.array(list(p_d_dict.keys())), np.array(list(p_d_dict.values()))
+    centered_dict = center_windows(window_designations, periods,center_designations=center_designations)
+    centered_windows = [centered_dict[period] for period in event_df.period.values]
+    event_df.insert(loc =0, column='win_sz_centered',value = centered_windows)
+    if event_df.win_sz_centered.isna().all():
+        event_df.insert(loc=0,column='sz_end',value= np.nan)
+        event_df.insert(loc=0,column='win_sz_st_end', value = np.nan)
+        event_df.insert(loc=0,column='win_label', value = np.nan)
+    else:
+        sz_end =  get_sz_end(event_df)
+        event_df.insert(loc=0,column='sz_end', value =sz_end)
+        sz_st_end = sample_seizures(event_df, start_buffer=10, end_buffer=10, mid_sz_length=10, win_size=5)
+        event_df.insert(loc=0,column='win_sz_st_end', value = sz_st_end)
+        labelled_window = event_df.parallel_apply(label_window, args=[win_size, stride], axis=1)
+        event_df.insert(loc=0,column='win_label', value = labelled_window)
+    centered_event_df = event_df
+    return centered_event_df
 
 def sample_seizures(peri_df, start_buffer=15, end_buffer=15, mid_sz_length=5, win_size=5, stride=1):
     """
@@ -832,10 +863,9 @@ def sample_seizures(peri_df, start_buffer=15, end_buffer=15, mid_sz_length=5, wi
 
     # shift post_wins back to begin at start_buffer + mid_sz_length
     post_resample = (post_wins - sz_end + end_buffer - 1 + start_buffer + mid_sz_length)
-
     resampled_wins = np.hstack((pre_wins, mid_sample, post_resample))
     remap_periods = dict(zip(all_wins,resampled_wins))
-    resampled_periods = peri_df.win_sz_centered.apply(lambda x: remap_periods[x])
+    resampled_periods = peri_df.win_sz_centered.parallel_apply(lambda x: remap_periods[x])
 
     return resampled_periods
     
@@ -903,7 +933,7 @@ def label_window(df_row, win_size, stride=1):
             return "post_ictal"
     return 
 
-def center_windows(window_designations, periods, center_designations=["0.0_0.0_1.0", "0.0_1.0_1.0"])->np.ndarray:
+def center_windows(window_designations, periods, center_designations=["0.0_0.0_1.0", "0.0_1.0_1.0"]):
     """Returns an array of window counts with the 0th window
     occuring at the transition. If non of the windows in CENTER_DESIGNATION are found, then method 
     will default to defining the transition window as the first window containing 1's after a window of all "0_0_0"
@@ -917,14 +947,14 @@ def center_windows(window_designations, periods, center_designations=["0.0_0.0_1
         center_designations (list): defaults to 2 window types to center at. If the first window type is not available
         will default to second.ljl
     Returns:
-        np.ndarray: count of windows with zero marking the transition into the seizure state. THis is important for aligning across groups
+        dictionary: original period number mapped to count of windows with zero marking the transition into the seizure state. THis is important for aligning across groups
     """
     transition_ind= find_transition(window_designations, center_designations)
     if transition_ind == -1:
         return [np.nan for _ in periods]
     trans_period = periods[transition_ind]
     centered_wins = periods - trans_period
-    return centered_wins
+    return dict(zip(periods, centered_wins))
 
 def find_transition(window_designations, center_designations):
     """finds the point in an ORDERED series of windows where window designation changes 
@@ -956,7 +986,6 @@ def find_transition(window_designations, center_designations):
     except AssertionError:
         if len(set(window_designations)) < 3:
             return -1
-
     return transition[0]
 
 def peri_net_pipeline(pathout, paths, num_cores=16, **kwargs):
