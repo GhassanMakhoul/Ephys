@@ -13,7 +13,8 @@ import pdb
 import numpy as np
 import pandas as pd
 from scipy.stats import f_oneway, ttest_ind
-
+from collections import Counter
+np.random.seed(10555)
 #specialty
 
 #GLOBAL Variables
@@ -54,7 +55,7 @@ def split_bipole(bip_df: pd.DataFrame):
     return pd.concat([bip_df,df2])
 
 
-def resample_agg_df(verbose_df :pd.DataFrame, resamp_col: str, unique_measures = ['freq_band'], resamp_schema='balance',**kwargs):
+def resample_bipole_df(verbose_df :pd.DataFrame, subgroup_col: str, bal_col : str, resamp_schema='balance',**kwargs):
     """Given a dataframe with imbalanced samples, returns a resampled AND summarized dataframe, accounting
     for imbalances in subgroups. For example, if the dataframe is a contact level net connectivity dataframe, there
     may be 200 contacts total and 10 of them may be SOZ's vs 190 NIZ's. A resampled df for boostrapping may then 
@@ -64,15 +65,56 @@ def resample_agg_df(verbose_df :pd.DataFrame, resamp_col: str, unique_measures =
 
     Args:
         verbose_df (pd.DataFrame): dataframe with imbalanced subgroups, rows may contain repeat measures which are accounted for
-        in the repeat measures keyword arg. 
-        resamp_col (str): column to balance dataset against
+        in the repeat measures keyword arg. Currently pipeline works for one event at a time. 
+        subgroup_col (str): column to balance dataset against
+        bal_col (str) : column that should be balanced (e.g. bipole level balancing)
         unique_measures (list[str], optional) :  List of columns of different measures
             for single data point , most often frequency bands. Used to make a UID per row.
               Defaults to '', indicating no repeat measures .
         resamp_schema (str, optional): resampling schema defaults to perfectly balancing the dataset
                     also allowed to send in proportions dictionary. Defaults to 'balance'.
     """
-    return NotImplementedError
+    # def concat_entries(row, cooncat_cols):
+    #     str_cols = [str(row[col]) for col in cooncat_cols]
+    #     return "_".join(str_cols)
+    # uids = verbose_df.paralell_apply(lambda x: concat_entries(x, unique_measures), axis=1)
+    assert 'bip' in verbose_df.columns, "Need bip "
+    assert 'freq_band' in verbose_df.columns, "Need freq band for now"
+    assert 'period' in verbose_df.columns, "Need periods of time for now"
+    #NOTE: these specific requirements for certain columns help to narrow down the dataframe to just 
+    # one set of the bipoles. This is important because we want to know the sampling schema and pull out 
+    # a balanced set of bipoles per event. TODO: in the future add modularity such that you can pass in 
+    # most df's and rebalance no matter the format. 
+    resamp_dfs = []
+    
+    
+    for event in set(verbose_df.eventID):
+
+        event_df = verbose_df[verbose_df.eventID == event]
+        sub_df = event_df[event_df.freq_band == 'alpha']
+        sub_df = sub_df[sub_df.period==0]
+        n_samp = np.min(sub_df.groupby('region').count())
+        sub_df = sub_df.groupby(subgroup_col).sample(n=n_samp, replace=True)
+        event_df = event_df[event_df[bal_col].isin(sub_df[bal_col])]
+        resamp_dfs.append(event_df)
+    return pd.concat(resamp_dfs)
+
+def agg_verbose_df(verbose_df: pd.DataFrame, agg_cols:list[str], measure_cols:list[str], categorical_cols:list[str], **kwargs)->pd.DataFrame:
+    """Given verbose dataframe with many repeated measures (bipole level and freq band level), returns an aggregated dataframe
+    along the group of interes (specified in agg_col)
+
+    Args:
+        verbose_df (pd.DataFrame): long form dataframe containing entries from connectivity or eibal pipelines. may be at various
+        levles of verbosity. For example may contain a row for every Bipole X frequency_band
+        agg_cols (list[str]): Columns to aggregate along. May be interested in grouping by FPAC vs non-FPAC NIZ electrodes for example
+        measure_cols (list[str]): Numeric columns to apply mean to (connectivity measure, ei_bal, etc)
+        categorical_cols (list[str]): metadata to preserve in agged df, could be period designation, freq band etc
+    """
+    v_df = verbose_df[agg_cols + measure_cols+categorical_cols]
+    v_df = v_df.groupby(agg_cols+categorical_cols).mean().reset_index()
+    return v_df
+
+
 
 
 
