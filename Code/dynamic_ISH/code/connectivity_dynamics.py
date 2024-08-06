@@ -777,6 +777,7 @@ def center_onset(peri_df: pd.DataFrame, win_size=5, stride=1, center_designation
     """
     centered_dfs = []
     subj = peri_df.patID.values[0]
+    peri_df.eventID = peri_df.eventID.astype(str) # fixes bug where some patients have 3 and "3" as separate events for example
     for event in set(peri_df.eventID): #NOTE: could this be a groupby apply?
         event_df = peri_df[peri_df.eventID == event]
         try:
@@ -843,14 +844,16 @@ def sample_seizures(peri_df, start_buffer=15, end_buffer=15, mid_sz_length=5, wi
     start_buffer =  start_buffer//stride
     end_buffer = end_buffer//stride
     mid_sz_length = mid_sz_length//stride
-    #Get window number that seizure ends in
+    # Get window number that seizure ends in
     sz_end = peri_df.sz_end.values[0]
 
-    #Buffers define the minimally acceptable seizure length
+    # Buffers define the minimally acceptable seizure length
     if sz_end < (start_buffer + mid_sz_length + end_buffer):
+        logger.warning(f"{peri_df.patID} event {peri_df.eventID} has a seizure length of {sz_end}",
+                       f"which is shorter than minimally acceptable length of {start_buffer+mid_sz_length+end_buffer}")
         return [np.nan for _ in range(peri_df.shape[0])]
 
-    #pull out all windows leading up to (or after) seizure and the transition windows that we will preserve
+    # pull out all windows leading up to (or after) seizure and the transition windows that we will preserve
     all_wins = np.unique(peri_df.win_sz_centered)
     pre_wins = np.unique(peri_df[peri_df.win_sz_centered < start_buffer].win_sz_centered)
     post_wins = np.unique(peri_df[peri_df.win_sz_centered > sz_end-end_buffer].win_sz_centered)
@@ -951,9 +954,11 @@ def center_windows(window_designations, periods, center_designations=["0.0_0.0_1
     """
     transition_ind= find_transition(window_designations, center_designations)
     if transition_ind == -1:
-        return [np.nan for _ in periods]
-    trans_period = periods[transition_ind]
-    centered_wins = periods - trans_period
+        centered_wins = [np.nan for _ in periods]
+        logger.warning(f"Problem with finding transition")
+    else:
+        trans_period = periods[transition_ind]
+        centered_wins = periods - trans_period
     return dict(zip(periods, centered_wins))
 
 def find_transition(window_designations, center_designations):
