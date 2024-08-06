@@ -31,6 +31,8 @@ from utils import *
 TIMELINE_F = '/mnt/ernie_main/000_Data/SEEG/SEEG_Periictal/data/Extracted_Per_Event_Interictal/all_time_data_01042023_212306.csv'
 SEEG_FOLDER = '/mnt/ernie_main/000_Data/SEEG/SEEG_Entire_EMU_Downloads/data/'
 BANDS = ['delta', 'theta', 'alpha', 'beta','gamma_l', 'gamma_H']
+#NOTE: the distinctino between gamma low and gamma high is kind of arbitrary
+BAND_RANGES = dict(zip(BANDS, [(0.01, 4), (4, 8), (8, 12), (12, 30),(30,60),(60,120) ]))
 PERIOD = ['inter','pre','ictal','post']
 
 pandarallel.initialize()
