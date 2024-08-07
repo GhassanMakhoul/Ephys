@@ -84,6 +84,15 @@ def get_chan_names(conn_obj):
     chan_names = read_conn_struct(conn_obj, 'pdc','bip_labels_used')
     return np.array([chan[0] for chan in chan_names])
 
+def get_atlas_regions(conn_obj):
+    """returns the name of each region associated with the bips
+    
+    Args:
+        conn_obj (_type):
+    """
+    regions = read_conn_struct(conn_obj, 'pdc', 'region_name')
+    return np.array([region[0] for region in regions])
+
 def get_reg_inds(pat_conn_labels):
     if type(pat_conn_labels) != np.ndarray:
         pat_conn_labels = np.array(pat_conn_labels)
@@ -103,9 +112,7 @@ def get_conn_dict_full(conn_obj,key='pdc', filt_dist=0,**kwargs):
         conn_obj (_type_): matlab struct read in as dictionary 
         key (str, optional): key for reading struct (somewhat depends on how it was saved). Defaults to 'pdc'.
         filt_dist (int, optional): _description_. Defaults to 0.
-
-    Returns:
-        _type_: dictionary of win_number -> PDC_matrix, note that window state is not tracked here and should be
+read_conn_structtionary of win_number -> PDC_matrix, note that window state is not tracked here and should be
         mapped elsewhere 
     """
     #TODO fix final keys

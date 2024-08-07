@@ -103,23 +103,19 @@ def resample_bipole_df(verbose_df :pd.DataFrame, subgroup_col: str, bal_col : st
         resamp_dfs.append(event_df)
     return pd.concat(resamp_dfs)
 
-def agg_verbose_df(verbose_df: pd.DataFrame, agg_cols:list[str], measure_cols:list[str], categorical_cols:list[str], **kwargs)->pd.DataFrame:
+def agg_verbose_df(verbose_df: pd.DataFrame, measure_cols:list, categorical_cols:list[str], **kwargs)->pd.DataFrame:
     """Given verbose dataframe with many repeated measures (bipole level and freq band level), returns an aggregated dataframe
-    along the group of interes (specified in agg_col)
+    along the groups of interest (specified in categorical_cols)
 
     Args:
         verbose_df (pd.DataFrame): long form dataframe containing entries from connectivity or eibal pipelines. may be at various
-        levles of verbosity. For example may contain a row for every Bipole X frequency_band
-        agg_cols (list[str]): Columns to aggregate along. May be interested in grouping by FPAC vs non-FPAC NIZ electrodes for example
-        measure_cols (list[str]): Numeric columns to apply mean to (connectivity measure, ei_bal, etc)
+        levels of verbosity. For example may contain a row for every Bipole X frequency_band
+        measure_cols (list): Numeric columns to apply mean to (connectivity measure, ei_bal, etc)
         categorical_cols (list[str]): metadata to preserve in agged df, could be period designation, freq band etc
     """
-    v_df = verbose_df[agg_cols + measure_cols+categorical_cols]
-    v_df = v_df.groupby(agg_cols+categorical_cols).mean().reset_index()
+    v_df = verbose_df[measure_cols+categorical_cols]
+    v_df = v_df.groupby(categorical_cols).mean().reset_index()
     return v_df
-
-
-
 
 
 def map_label(label):
