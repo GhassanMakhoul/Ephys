@@ -95,7 +95,22 @@ def gen_contact_peri_psd(subj_obj, spectral_keys, contact_labels)->pd.DataFrame:
 
 
 def score_period_power(power_decomps: np.ndarray, freq_inds, window_dict, agg_win = "interictal", buffer=60, win_size=5, stride=1,stats='full', **kwargs)->dict:
+    """Generate reference statistics to compute z-score PSD's against
 
+    Args:
+        power_decomps (np.ndarray): raw pwelch should be T X N_ch X M_freqs
+        freq_inds (np.ndarray): array that is M_freqs long and should track the frequency bins of p_welch
+        window_dict (_type_): dictionary mapping indices of windows to window deisgnations that 
+                            tracks the beginning middle and end of a recording 0_0_0 = interictal_interictal_interictal
+        agg_win (str, optional): windows to create references against. Defaults to "interictal".
+        buffer (int, optional): exclusion time before window transitions  . Defaults to 60.
+        win_size (int, optional): length in s of window. Defaults to 5.
+        stride (int, optional): stride of window in s. Defaults to 1.
+        stats (str, optional): will probable remove. Defaults to 'full'.
+
+    Returns:
+        dict: _description_
+    """
 
     power_decomps = filter_periods(power_decomps, window_dict, agg_win, buffer, win_size)
     power_decomps = np.log(np.array(power_decomps))
@@ -119,7 +134,8 @@ def score_period_power(power_decomps: np.ndarray, freq_inds, window_dict, agg_wi
         auc_var = np.dot(auc_diff, auc_diff)
         auc_std = np.sqrt(np.mean(auc_var, axis=0))
         std_dict[freq] = auc_std
-    return mu_dict, std_dict
+    ref_stats = dict(zip(BANDS, [(mu_dict[b], std_dict[b]) for b in BANDS]))
+    return ref_stats
 
 def assemble_psd_verbose(subj_obj, sz_band='beta',window='full'):
     
@@ -142,17 +158,28 @@ def assemble_psd_verbose(subj_obj, sz_band='beta',window='full'):
         #NOTE: TAKE LOG of psd before calculating power AUC
         pwelch = np.log(pwelch)
         band_pow = get_power(pwelch, sz_band, freqs)
+        #TODO: add iteration over multiple bands
         df = pd.DataFrame(data=band_pow,columns=[f"power_{sz_band}"])
+        z_bands = z_score(df[f"power_{sz_band}"], ref_stats[sz_band])
+        df.insert(loc=1, column=f"z_{sz_band}", value=z_bands)
         df.insert(loc=1, column='region', value=contact_label)
         df.insert(loc=1, column='bip', value=bip_names)
         df.insert(loc=1, column='period', value=key)
         df.insert(loc=1, column='window_designations', value=window_designation)
+        #Z-score
+
+        #NOTE: is there a better way to z-score? Maybe I repmat and just use over aggregated psd_df
+
         psd_dfs.append(df)
     psd_dfs = pd.concat(psd_dfs)
     psd_dfs.insert(loc=1, column='patID', value = subj)
     psd_dfs.insert(loc=1, column='sz_type', value=sz_type)
     psd_dfs.insert(loc=1, column='eventID',value= eventID)
     return psd_dfs
+
+
+def z_score(samps, mu, std):
+    return (samps - mu)/std
         
 def get_power(psd, freq, freq_inds):
     """Return the area under the curve of the PSD in the frequency range of interes
