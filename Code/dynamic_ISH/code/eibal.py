@@ -136,6 +136,7 @@ def assemble_psd_verbose(subj_obj, sz_band='beta',window='full'):
     subj = read_conn_struct(subj_obj,'pdc','patID')
     sz_type = read_conn_struct(subj_obj,'pdc', 'sz_type')
     eventID = read_conn_struct(subj_obj, 'pdc','eventID')
+    ref_stats = score_period_power(pwelch_all_windows, freqs, window_dict)
     for key, window_designation in window_dict.items():
         pwelch = pwelch_all_windows[key, :,:]
         #NOTE: TAKE LOG of psd before calculating power AUC
