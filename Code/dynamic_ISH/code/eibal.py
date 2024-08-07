@@ -93,6 +93,34 @@ def gen_contact_peri_psd(subj_obj, spectral_keys, contact_labels)->pd.DataFrame:
         spectral_dfs.append(df)
     return pd.concat(spectral_dfs)
 
+
+def score_period_power(power_decomps: np.ndarray, freq_inds, window_dict, agg_win = "interictal", buffer=60, win_size=5, stride=1,stats='full', **kwargs)->dict:
+
+
+    power_decomps = filter_periods(power_decomps, window_dict, agg_win, buffer, win_size)
+    power_decomps = np.log(np.array(power_decomps))
+    mu_decomps = np.mean(power_decomps, axis=0)
+    mu_auc = [get_power(mu_decomps, freq, freq_inds) for freq in BANDS ]
+    mu_dict = dict(zip(BANDS, mu_auc))
+    #std dev is going to be a bit trickier
+    std_dict = {}
+    widths = np.diff(freq_inds)
+    widths = np.append(widths, widths[-1]) #make up for losing one entry
+    for freq, freq_ranges in BAND_RANGES.item():
+        lo, hi = freq_ranges
+        inds_h = np.where(freq_inds <= hi)
+        inds_l = np.where(freq_inds > lo)
+        inds  = np.intersect1d(inds_h, inds_l)
+        
+        # AUC's (N_periods x CH x N_freq_inds) * Widths (N_freq_inds,1)
+        # AUC diff (N_periods x CH x 1) - CH x 1 #NOTE: should I make a repmat?
+        # Check shapes
+        auc_diff =  np.dot(power_decomps[:,:,inds], widths[inds]) - mu_dict[freq]
+        auc_var = np.dot(auc_diff, auc_diff)
+        auc_std = np.sqrt(np.mean(auc_var, axis=0))
+        std_dict[freq] = auc_std
+    return mu_dict, std_dict
+
 def assemble_psd_verbose(subj_obj, sz_band='beta',window='full'):
     
     freqs = read_conn_struct(subj_obj, 'pdc','pwelch_freqs')
@@ -110,6 +138,8 @@ def assemble_psd_verbose(subj_obj, sz_band='beta',window='full'):
     eventID = read_conn_struct(subj_obj, 'pdc','eventID')
     for key, window_designation in window_dict.items():
         pwelch = pwelch_all_windows[key, :,:]
+        #NOTE: TAKE LOG of psd before calculating power AUC
+        pwelch = np.log(pwelch)
         band_pow = get_power(pwelch, sz_band, freqs)
         df = pd.DataFrame(data=band_pow,columns=[f"power_{sz_band}"])
         df.insert(loc=1, column='region', value=contact_label)
@@ -125,16 +155,16 @@ def assemble_psd_verbose(subj_obj, sz_band='beta',window='full'):
         
 def get_power(psd, freq, freq_inds):
     """Return the area under the curve of the PSD in the frequency range of interes
-
+    NOTE: THIS ASSUMES that you are passing the logarithm of the raw pwelch.
     Args:
         psd (np.ndarray): 2D array of PSD's shape should be N_ch x n_freq
         freq (str): frequency range of interest, 
         freq_inds (np.npdarray) : array of frequency bins, each entry should correspond to a
                     frequency bin measured by PSD
-    ReturnsL
+    Returns
         np.ndarray of AUC for frequency of interest for N_ch's
     """
-    psd = np.log(psd)
+    #psd = np.log(psd) #assumes that the log has already been calculated
     lo, hi = BAND_RANGES[freq]
     inds_h = np.where(freq_inds <= hi)
     inds_l = np.where(freq_inds > lo)
