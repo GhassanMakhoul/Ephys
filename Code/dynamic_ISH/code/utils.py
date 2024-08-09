@@ -21,7 +21,8 @@ np.random.seed(10555)
 BANDS = ['delta', 'theta','alpha', 'beta', 'gamma_low','gamma_high']
 DIR = '/mnt/ernie_main/000_Data/SEEG/SEEG_EyesClosed_RestingState/results/Graham_81pats/PDC_RestingState/'
 DTYPE = h5py.special_dtype(vlen=str)
-COLOR_MAP= {'pz':'#D95319', 'soz': "#A2142F", "nz":"#0072BD",  'nz_pz': '#D95319', 'nz_soz': "#A2142F", "nz_nz":"#0072BD"}
+COLOR_MAP= {'pz':'#D95319', 'soz': "#A2142F", "nz":"#0072BD",  
+            'pz_soz': '#D95319', 'soz_soz': "#A2142F", "nz_soz":"#0072BD"}
 
 BANDS = ['delta', 'theta', 'alpha', 'beta','gamma_l', 'gamma_H']
 #NOTE: the distinctino between gamma low and gamma high is kind of arbitrary
