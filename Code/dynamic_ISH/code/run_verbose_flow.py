@@ -50,7 +50,7 @@ if __name__ == '__main__':
     files = glob.glob(os.path.join(DATA_DIR,"*flow*pat*.csv"))
     files = [f for f in files if ('verbose' in f)]
 
-    for f in files[0:2]:
+    for f in files:
         flow_df = pd.read_csv(os.path.join(DATA_DIR,f))
         flow_df = flow_df[flow_df.freq_band == 'alpha']
         if args.source:
