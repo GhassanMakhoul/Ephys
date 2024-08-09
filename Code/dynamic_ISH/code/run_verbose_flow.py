@@ -46,7 +46,7 @@ if __name__ == '__main__':
     # load multiple patients
     agg_df_lst = []
     stats_dict = {}
-    stats_keys = ['patID','eventID','FPAC_bips','other_bips']
+    stats_keys = ['patID','eventID','sz_type','FPAC_nz_bips','other_nz_bips']
     files = glob.glob(os.path.join(DATA_DIR,"*flow*pat*.csv"))
     files = [f for f in files if ('verbose' in f)]
 
@@ -84,7 +84,7 @@ if __name__ == '__main__':
 
             n_fpac = stat_df[stat_df.FPAC].shape[0]
             n_other = stat_df[~stat_df.FPAC].shape[0]
-            for key, val in zip(stats_keys,(patID,event,n_fpac,n_other)):
+            for key, val in zip(stats_keys,(patID,event,stat_df.sz_type.iloc[0],n_fpac,n_other)):
                 stats_dict.setdefault(key,[]).append(val)
         del stat_df
 
