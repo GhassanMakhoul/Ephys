@@ -45,6 +45,7 @@ if __name__ == '__main__':
 
     # load multiple patients
     agg_df_lst = []
+    agg_fpac_df_lst = []
     stats_dict = {}
     stats_keys = ['patID','eventID','sz_type','FPAC_nz_bips','other_nz_bips']
     files = glob.glob(os.path.join(DATA_DIR,"*flow*pat*.csv"))
@@ -74,7 +75,7 @@ if __name__ == '__main__':
 
         # collect stats
         for event in flow_df.eventID.unique():
-            logger.info(f'+Working on event {event}+')
+            logger.info(f'-Working on event {event}')
             stat_df = flow_df.copy()
             stat_df = stat_df[(stat_df.period == 0) & (stat_df.eventID == event)]
             if args.source:
@@ -88,34 +89,55 @@ if __name__ == '__main__':
                 stats_dict.setdefault(key,[]).append(val)
         del stat_df
 
+        # first aggregate dfs ignoring FPAC
+        # this step is necessary because otherwise FPAC and non-FPAC electrodes will be weighted
+        # equally even though there are varying numbers of FPAC electrodes per event and patient
         agg_df = agg_verbose_df(
+            flow_df,
+            measure_cols = ['value'],
+            categorical_cols = [retain_col,'win_sz_st_end','eventID','patID','sz_type']
+        )
+        agg_df = agg_verbose_df(
+            agg_df,
+            measure_cols = ['value'],
+            categorical_cols = ['patID','sz_type',retain_col,'win_sz_st_end']
+        )
+        agg_df_lst.append(agg_df)
+
+        # second aggregate dfs including FPAC
+        agg_fpac_df = agg_verbose_df(
             flow_df,
             measure_cols = ['value'],
             categorical_cols = [retain_col,'win_sz_st_end','eventID','patID','sz_type','FPAC']
         )
-
-        agg_df = agg_verbose_df(
-            agg_df,
+        agg_fpac_df = agg_verbose_df(
+            agg_fpac_df,
             measure_cols = ['value'],
             categorical_cols = ['patID','sz_type',retain_col,'win_sz_st_end','FPAC']
         )
+        agg_fpac_df_lst.append(agg_fpac_df)
 
+        # clear space in memory
         del flow_df
-        agg_df_lst.append(agg_df)
 
     grp_flow_df = pd.concat(agg_df_lst)
+    grp_flow_fpac_df = pd.concat(agg_fpac_df_lst)
 
     if args.source:
         grp_flow_df['src_trgt'] = grp_flow_df.parallel_apply(lambda x : f"{args.source}_"+x['target'], axis=1)
+        grp_flow_fpac_df['src_trgt'] = grp_flow_fpac_df.parallel_apply(lambda x : f"{args.source}_"+x['target'], axis=1)
         file_suffix = f'source_{args.source}'
     else:
         grp_flow_df['src_trgt'] = grp_flow_df.parallel_apply(lambda x : x['source']+f"_{args.target}", axis=1)
+        grp_flow_fpac_df['src_trgt'] = grp_flow_fpac_df.parallel_apply(lambda x : x['source']+f"_{args.target}", axis=1)
         file_suffix = f'target_{args.target}'
 
     grp_flow_df.to_csv(f'{DATA_DIR}/verbose_grp_flow_{file_suffix}.csv', index=False)
+    grp_flow_fpac_df.to_csv(f'{DATA_DIR}/verbose_grp_flow_fpac_{file_suffix}.csv', index=False)
 
     logger.success(f'Created summary file at {DATA_DIR}/verbose_grp_flow_{file_suffix}.csv')
+    logger.success(f'Created summary file at {DATA_DIR}/verbose_grp_flow_fpac_{file_suffix}.csv')
 
     stats_df = pd.DataFrame.from_dict(stats_dict)
-    stats_df.to_csv(f'{DATA_DIR}/stats_verbose_grp_flow_{file_suffix}.csv', index=False)
-    logger.success(f'Created stats file at {DATA_DIR}/stats_verbose_grp_flow_{file_suffix}.csv')
+    stats_df.to_csv(f'{DATA_DIR}/stats_verbose_grp_flow_fpac_{file_suffix}.csv', index=False)
+    logger.success(f'Created stats file at {DATA_DIR}/stats_verbose_grp_flow_fpac_{file_suffix}.csv')
