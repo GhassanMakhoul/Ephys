@@ -630,7 +630,7 @@ def conn_to_flow_dict(conn_mat:np.ndarray, reg_inds:dict, window_dict, period, b
         dict: keys include source, target, mean connectivity, period, and window_designation
     """
     # only includes categories with at least one electrode
-    flow_targets = [(src, trgt) for src in reg_inds.keys() for trgt in reg_inds.keys() if (reg_inds[src].size & reg_inds[trgt].size)]
+    flow_targets = [(src, trgt) for src in reg_inds.keys() for trgt in reg_inds.keys() if (reg_inds[src].size > 0) & (reg_inds[trgt].size > 0)]
     keys = ['source','target','value','period','window_designations', 'freq_band']
 
     for (src, trgt) in flow_targets:
@@ -660,7 +660,7 @@ def conn_to_flow_dict_verbose(conn_mat:np.ndarray, reg_inds:dict, window_dict, p
         dict: keys include source, target, mean connectivity, period, and window_designation
     """
     # only includes categories with at least one electrode
-    flow_targets = [(src, trgt) for src in reg_inds.keys() for trgt in reg_inds.keys() if (reg_inds[src].size & reg_inds[trgt].size)]
+    flow_targets = [(src, trgt) for src in reg_inds.keys() for trgt in reg_inds.keys() if (reg_inds[src].size > 0) & (reg_inds[trgt].size > 0)]
     keys = ['source','target','src_bip','value','period','window_designations','freq_band']
 
     for (src, trgt) in flow_targets:
