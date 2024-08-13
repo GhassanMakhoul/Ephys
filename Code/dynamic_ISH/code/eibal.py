@@ -109,7 +109,7 @@ def score_period_power(power_decomps: np.ndarray, freq_inds, window_dict, agg_wi
         stats (str, optional): will probable remove. Defaults to 'full'.
 
     Returns:
-        dict: _description_
+        dict: returns a dictionary of tuples mapping 'band' to (mu, std) for a given period
     """
 
     power_decomps = filter_periods(power_decomps, window_dict, agg_win, buffer, win_size)
@@ -121,7 +121,7 @@ def score_period_power(power_decomps: np.ndarray, freq_inds, window_dict, agg_wi
     std_dict = {}
     widths = np.diff(freq_inds)
     widths = np.append(widths, widths[-1]) #make up for losing one entry
-    for freq, freq_ranges in BAND_RANGES.item():
+    for freq, freq_ranges in BAND_RANGES.items():
         lo, hi = freq_ranges
         inds_h = np.where(freq_inds <= hi)
         inds_l = np.where(freq_inds > lo)
@@ -131,19 +131,66 @@ def score_period_power(power_decomps: np.ndarray, freq_inds, window_dict, agg_wi
         # AUC diff (N_periods x CH x 1) - CH x 1 #NOTE: should I make a repmat?
         # Check shapes
         auc_diff =  np.dot(power_decomps[:,:,inds], widths[inds]) - mu_dict[freq]
-        auc_var = np.dot(auc_diff, auc_diff)
+        auc_var = auc_diff**2
         auc_std = np.sqrt(np.mean(auc_var, axis=0))
         std_dict[freq] = auc_std
     ref_stats = dict(zip(BANDS, [(mu_dict[b], std_dict[b]) for b in BANDS]))
     return ref_stats
 
-def assemble_psd_verbose(subj_obj, sz_band='beta',window='full'):
+
+
+def gen_power_dfs(data_dir, out_dir, bands=['beta'], num_cores=20) -> pd.DataFrame:
+    """generates the psd_df in a paralellized fashion that saves output. Saves intermediate csvs too
+    and returns final df with pd.concat
+    NOTE: THIS assumes that the directory you're passing in as DATA_DIR is the top level directory
+    for ONE AND ONLY ONE subject/patient at a time. The code will run the same with a differnt directory
+    organization tbh, but the book keeping may be off somewhere downstream/things may be slower too.
+
+    Args:
+        data dir: data with  structs /patID/struct.mat
+        out_put : where to save final csv and intermediate data
+    """
+    from tqdm import tqdm
+
+    sub_paths= glob.glob(os.path.join(data_dir, "*PDC.mat"))
+    psd_dfs = []
+    count = 0
+    assert len(sub_paths) > 0, f"No files to load in {sub_paths}, check {data_dir}"
+    for f_paths in tqdm(chunker(sub_paths, num_cores)):
+        structs = load_structs(f_paths,num_cores)
+        incl_inds = [i for i in range(len(structs)) if structs[i] != None]
+        structs = [structs[i] for i in incl_inds]
+        res_dfs = get_reg_power_para(structs, cores=num_cores, **{'bands':bands})
+        subj = res_dfs.patID.values[0]
+        res_dfs.to_csv(os.path.join(out_dir,f'psd_{subj}_tmp_{count}.csv'),index=False)
+        count += len(f_paths)
+        print(f"Saved first {count} seizures to folder: {out_dir}")
+        psd_dfs.append(res_dfs)   
+        
+    return pd.concat(psd_dfs)
+
+def get_reg_power_para(subj_files:list[str], cores =12,**kwargs)->pd.DataFrame:
+    """Generate AUC for given psd for all windows in a given subj_object
+
+    Args:
+        subj_files (list[str]): list of .mat files to open with peri-ictal data
+        cores (int, optional): Number of cores to parallelize with. Defaults to 12.
+
+    Returns:
+        pd.DataFrame: summarized AUC at a per bipole level per subject
+    """
+    p = Pool(cores)
+    dfs = p.imap(partial(assemble_psd_verbose, **kwargs), subj_files)
+    return pd.concat(dfs)
+
+def assemble_psd_verbose(subj_obj, sz_band=['beta'],window='full') -> pd.DataFrame:
     
     freqs = read_conn_struct(subj_obj, 'pdc','pwelch_freqs')
     if window == 'full':
         window_dict = prep_window_dict(subj_obj)
         pwelch_all_windows = read_conn_struct(subj_obj,'pdc','pwelch_all_windowed')
-
+    if type(sz_band) == str:
+        sz_band = [sz_band]
     psd_dfs = []
     bip_names = get_chan_names(subj_obj)
     soz_per_szr = read_conn_struct(subj_obj, 'pdc', 'soz_per_seizure')
@@ -157,19 +204,20 @@ def assemble_psd_verbose(subj_obj, sz_band='beta',window='full'):
         pwelch = pwelch_all_windows[key, :,:]
         #NOTE: TAKE LOG of psd before calculating power AUC
         pwelch = np.log(pwelch)
-        band_pow = get_power(pwelch, sz_band, freqs)
-        #TODO: add iteration over multiple bands
-        df = pd.DataFrame(data=band_pow,columns=[f"power_{sz_band}"])
-        z_bands = z_score(df[f"power_{sz_band}"], ref_stats[sz_band])
-        df.insert(loc=1, column=f"z_{sz_band}", value=z_bands)
-        df.insert(loc=1, column='region', value=contact_label)
+
+        df = pd.DataFrame(data=contact_label,columns=["region"])
         df.insert(loc=1, column='bip', value=bip_names)
-        df.insert(loc=1, column='period', value=key)
-        df.insert(loc=1, column='window_designations', value=window_designation)
-        #Z-score
+        df.insert(loc=2, column='period', value=key)
+        df.insert(loc=3, column='window_designations', value=window_designation)
+        for b in sz_band:
+            band_pow = get_power(pwelch, b, freqs)
+            df.insert(loc=len(df.columns), value=band_pow,column=f"power_{b}")
+            #Z-score
+            z_bands = z_score(df[f"power_{b}"], ref_stats[b][0], ref_stats[b][1])
+            df.insert(loc=len(df.columns), column=f"z_{b}", value=z_bands)
+        
 
         #NOTE: is there a better way to z-score? Maybe I repmat and just use over aggregated psd_df
-
         psd_dfs.append(df)
     psd_dfs = pd.concat(psd_dfs)
     psd_dfs.insert(loc=1, column='patID', value = subj)
@@ -366,10 +414,18 @@ def main(argv):
     with open(config_f, 'r') as f:
         config =  yaml.safe_load(f)
         config = config['ei_bal']
-    logger.info(f"Running eibal on {datadir} with the following config:\n{config}")
-    ei_df = gen_ei_dfs(datadir, pathout)
-    subj = ei_df.patID.values[0]
-    ei_df.to_csv(os.path.join(pathout, f"ei_bal_{subj}.csv"),index=False)
+    pipeline = 'ei' if 'pipeline' not in config.keys() else config['pipeline']
+    match pipeline:
+        case 'ei':
+            logger.info(f"Running eibal on {datadir} with the following config:\n{config}")
+            ei_df = gen_ei_dfs(datadir, pathout)
+            subj = ei_df.patID.values[0]
+            ei_df.to_csv(os.path.join(pathout, f"ei_bal_{subj}.csv"),index=False)
+        case 'power':
+            logger.info(f"Calculating power fluctuations on {datadir} with the following config:\n{config}")
+            power_df = gen_power_dfs(datadir, pathout)
+            subj = power_df.patID.values[0]
+            power_df.to_csv(os.path.join(pathout, f"power_bal_{subj}.csv"),index=False)
 
 if __name__ == '__main__':
     main(sys.argv[1:])    
