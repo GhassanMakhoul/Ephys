@@ -53,15 +53,22 @@ if __name__ == '__main__':
 
     for f in files:
         flow_df = pd.read_csv(os.path.join(DATA_DIR,f))
+        patID = flow_df.patID.iloc[0]
+        logger.info(f'Running patient {patID}')
+
         flow_df = flow_df[flow_df.freq_band == 'alpha']
         if args.source:
+            if args.source not in flow_df.source.unique():
+                logger.warning(f'Patient {patID} does not have any source {args.source}')
+                continue
             flow_df = flow_df[flow_df.source == args.source]
         else:
+            if args.target not in flow_df.target.unique():
+                logger.warning(f'Patient {patID} does not have any target {args.target}')
+                continue
             flow_df = flow_df[flow_df.target == args.target]
 
         # get patient's bip to region dictionary
-        patID = flow_df.patID.iloc[0]
-        logger.info(f'Running patient {patID}')
         mat_paths = glob.glob(f'/mnt/ernie_main/Ghassan/ephys/data/connectivity/{patID}/{patID}*PDC.mat')
         obj = load_mat(mat_paths[0])
         regions = get_atlas_regions(obj)
