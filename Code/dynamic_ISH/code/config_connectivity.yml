@@ -1,9 +1,12 @@
 peri_para:
   stats : 'none'
-  num_cores : 4
-  buffer : 60
-  verbose : True
-ei_bal:
   num_cores : 20
+  buffer : 60
+  verbose : False
+ei_bal:
+  num_cores : 24
+pwoer:
+  num_cores: 24
+  bands : ['delta', 'beta']
 
-pipeline: 'net'
+pipeline: 'trinode'

@@ -215,7 +215,8 @@ def assemble_psd_verbose(subj_obj, sz_band=['beta'],window='full') -> pd.DataFra
             #Z-score
             z_bands = z_score(df[f"power_{b}"], ref_stats[b][0], ref_stats[b][1])
             df.insert(loc=len(df.columns), column=f"z_{b}", value=z_bands)
-        
+            fractional_change = frac_score(df[f"power_{b}"], ref_stats[b][0])
+            df.insert(loc=len(df.columns), column=f"frac_change_{b}", value=fractional_change)
 
         #NOTE: is there a better way to z-score? Maybe I repmat and just use over aggregated psd_df
         psd_dfs.append(df)
@@ -225,7 +226,8 @@ def assemble_psd_verbose(subj_obj, sz_band=['beta'],window='full') -> pd.DataFra
     psd_dfs.insert(loc=1, column='eventID',value= eventID)
     return psd_dfs
 
-
+def frac_score(samps, baseline):
+    return 100*(samps - baseline)/np.abs(baseline)
 def z_score(samps, mu, std):
     return (samps - mu)/std
         
@@ -423,7 +425,8 @@ def main(argv):
             ei_df.to_csv(os.path.join(pathout, f"ei_bal_{subj}.csv"),index=False)
         case 'power':
             logger.info(f"Calculating power fluctuations on {datadir} with the following config:\n{config}")
-            power_df = gen_power_dfs(datadir, pathout)
+            power_kwargs = config['power']
+            power_df = gen_power_dfs(datadir, pathout, **power_kwargs)
             subj = power_df.patID.values[0]
             power_df.to_csv(os.path.join(pathout, f"power_bal_{subj}.csv"),index=False)
 
