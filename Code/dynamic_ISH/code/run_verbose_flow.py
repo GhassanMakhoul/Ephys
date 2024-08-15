@@ -78,7 +78,7 @@ if __name__ == '__main__':
         flow_df['region'] = flow_df.parallel_apply(lambda x: bip_to_region_dict[x['src_bip']], axis=1)
         flow_df['FPAC'] = flow_df.parallel_apply(lambda x: (x.region in lut_data), axis=1)
         flow_df = center_onset(flow_df, **{'mid_sz_length':20})
-        flow_df.dropna()
+        flow_df.dropna(inplace=True)
 
         # collect stats
         for event in flow_df.eventID.unique():
