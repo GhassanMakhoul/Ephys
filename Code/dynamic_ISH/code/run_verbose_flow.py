@@ -80,6 +80,11 @@ if __name__ == '__main__':
         flow_df = center_onset(flow_df, **{'mid_sz_length':20})
         flow_df.dropna(inplace=True)
 
+        #filter out patients with no events 
+        if flow_df.eventID.unique().size == 0:
+            logger.warning(f"PatID: {patID} has no events, may mean that seizure length is below threshold")
+            continue
+
         # collect stats
         for event in flow_df.eventID.unique():
             logger.info(f'-Working on event {event}')
