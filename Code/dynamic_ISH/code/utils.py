@@ -8,7 +8,7 @@ import mat73
 import re
 import h5py
 import pdb
-
+from loguru import logger
 #data/stats
 import numpy as np
 import pandas as pd
@@ -43,6 +43,20 @@ def load_mat(f):
         except:
             print(f"Problem Loading {f}")
             return None
+        
+
+def setup_logs(logger, pathout: str, runID: str):
+    """Set up logging, adds dir if not exist, and adds sink
+
+    Args:
+        pathout (str): DATA_DIR/subj_stim_ma/
+    """
+    logdir = os.path.join(pathout, 'logs/')
+    if not os.isdir(logdir):
+        os.mkdir(logdir)
+    logf = os.path.join(logdir, f"run_{runID}.log")
+    logger.add(logf)
+    return logger
 
 def split_bipole(bip_df: pd.DataFrame):
     """splits the bipole column of a bipole df

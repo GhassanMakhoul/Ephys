@@ -4,6 +4,7 @@ INP_DIR='/mnt/ernie_main/Ghassan/ephys/data/connectivity/'
 OUT_DIR="/mnt/ernie_main/Ghassan/ephys/data/ei_bal/"
 LOG_DIR="~/Documents/Research/Ephys/Code/dynamic_ISH/logs/"
 CONFIG_FILE="config_connectivity.yml"
+SUBJ='all'
 
 Help()
 {
@@ -54,7 +55,7 @@ done
 
 if [ "$SUBJ" = "all" ]; then
     for d in $INP_DIR*/; do 
-        echo Running EI Bal on $d 
+        echo Running Spectral Analysis on $d 
         python eibal.py -d $d -p $OUT_DIR -c $CONFIG_FILE
     done
     exit;

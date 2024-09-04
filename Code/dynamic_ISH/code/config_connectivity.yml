@@ -5,8 +5,8 @@ peri_para:
   verbose : False
 ei_bal:
   num_cores : 24
-pwoer:
+power:
   num_cores: 24
   bands : ['delta', 'beta']
 
-pipeline: 'trinode'
+pipeline: 'power'

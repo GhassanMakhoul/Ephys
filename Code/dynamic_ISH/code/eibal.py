@@ -183,33 +183,37 @@ def get_reg_power_para(subj_files:list[str], cores =12,**kwargs)->pd.DataFrame:
     dfs = p.imap(partial(assemble_psd_verbose, **kwargs), subj_files)
     return pd.concat(dfs)
 
-def assemble_psd_verbose(subj_obj, sz_band=['beta'],window='full') -> pd.DataFrame:
+def assemble_psd_verbose(subj_obj, bands=['beta'],window='full') -> pd.DataFrame:
     
     freqs = read_conn_struct(subj_obj, 'pdc','pwelch_freqs')
     if window == 'full':
         window_dict = prep_window_dict(subj_obj)
-        pwelch_all_windows = read_conn_struct(subj_obj,'pdc','pwelch_all_windowed')
-    if type(sz_band) == str:
-        sz_band = [sz_band]
+        pwelch_windows = read_conn_struct(subj_obj,'pdc','pwelch_all_windowed')
+    else:
+        raise NotImplementedError("Need to implement another window schema")
+    if type(bands) == str:
+        bands = [bands]
     psd_dfs = []
     bip_names = get_chan_names(subj_obj)
+    anatomical_regions = get_atlas_regions(subj_obj)
     soz_per_szr = read_conn_struct(subj_obj, 'pdc', 'soz_per_seizure')
     contact_label = format_soz(soz_per_szr)
     freqs = read_conn_struct(subj_obj, 'pdc', 'pwelch_freqs')
     subj = read_conn_struct(subj_obj,'pdc','patID')
     sz_type = read_conn_struct(subj_obj,'pdc', 'sz_type')
     eventID = read_conn_struct(subj_obj, 'pdc','eventID')
-    ref_stats = score_period_power(pwelch_all_windows, freqs, window_dict)
+    ref_stats = score_period_power(pwelch_windows, freqs, window_dict)
     for key, window_designation in window_dict.items():
-        pwelch = pwelch_all_windows[key, :,:]
+        pwelch = pwelch_windows[key, :,:]
         #NOTE: TAKE LOG of psd before calculating power AUC
         pwelch = np.log(pwelch)
 
         df = pd.DataFrame(data=contact_label,columns=["region"])
         df.insert(loc=1, column='bip', value=bip_names)
-        df.insert(loc=2, column='period', value=key)
-        df.insert(loc=3, column='window_designations', value=window_designation)
-        for b in sz_band:
+        df.insert(loc=2, column='anat_region', value= anatomical_regions)
+        df.insert(loc=3, column='period', value=key)
+        df.insert(loc=4, column='window_designations', value=window_designation)
+        for b in bands:
             band_pow = get_power(pwelch, b, freqs)
             df.insert(loc=len(df.columns), value=band_pow,column=f"power_{b}")
             #Z-score
@@ -415,7 +419,6 @@ def main(argv):
     #TODO use yamls and configs
     with open(config_f, 'r') as f:
         config =  yaml.safe_load(f)
-        config = config['ei_bal']
     pipeline = 'ei' if 'pipeline' not in config.keys() else config['pipeline']
     match pipeline:
         case 'ei':
@@ -424,6 +427,7 @@ def main(argv):
             subj = ei_df.patID.values[0]
             ei_df.to_csv(os.path.join(pathout, f"ei_bal_{subj}.csv"),index=False)
         case 'power':
+            print("power")
             logger.info(f"Calculating power fluctuations on {datadir} with the following config:\n{config}")
             power_kwargs = config['power']
             power_df = gen_power_dfs(datadir, pathout, **power_kwargs)
