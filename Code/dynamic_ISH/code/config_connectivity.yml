@@ -11,11 +11,11 @@ power:
 plt_flow_power:
   num_cores: 6
   band: "beta"
-  pipeline: "merge"
-  merged_fname : merged_flow_pow_subsamp5.csv
-  plot_type : 'scatter'
-  subample : 10
+  pipeline: "plot"
+  merged_fname : merged_flow_pow_subsampFull.csv
+  plot_type : 'kde'
+  subsample : 5000
   random_state : 69420
   y : 'value'
-  pre_merged : False
+  pre_merged : True
 pipeline: 'power'

@@ -106,13 +106,23 @@ def load_dfs(flow_fname, power_fname):
 def kde_flow_power(flow_power_df, pltname, x='value',y='z_beta', **kwargs):
      grp_flowpow_df = flow_power_df.groupby(['win_label','source'])
      with sns.plotting_context("paper"):
-            fig, axs = plt.subplots(2,7, sharex=True, sharey=True):
-            for source, i in enumerate(['nz', 'soz']):
-                for period, t, in enumerate(['interictal', 'pre_ictal','early_ictal','ictal','late_ictal','early_post_ictal','post_ictal']):
-                    ax = axs[i,t]
+            fig, axs = plt.subplots(2,7, sharex=True, sharey=True)
+            fig.set_figheight(15)
+            fig.set_figwidth(30)
+            for i, source in enumerate(['nz', 'soz']):
+                for t, period, in enumerate(['interictal', 'pre_ictal','early_ictal','ictal','late_ictal','early_post_ictal','post_ictal']):
+                    ax = axs[i][t]
                     plot_df = grp_flowpow_df.get_group((period, source))
-                    sns.kdeplot(data=plot_df, x=x, y=y, hue='region_involved', legend=True, ax=ax, palette=FLOWMAP)
-
+                    
+                    if source == 'nz' and period == 'post_ictal':
+                        ax = sns.kdeplot(data=plot_df, x=x, y=y, hue='region_involved', legend=True, ax=ax, palette=FLOWMAP)
+                        sns.move_legend(ax, "upper left", bbox_to_anchor=(1, 1))
+                    elif source =='soz' and period =='post_ictal':
+                        ax = sns.kdeplot(data=plot_df, x=x, y=y, hue='region_involved', legend=True, ax=ax, palette=FLOWMAP)
+                        sns.move_legend(ax, "lower left", bbox_to_anchor=(2,2) )
+                    else:
+                        ax = sns.kdeplot(data=plot_df, x=x, y=y, hue='region_involved', legend=False, ax=ax, palette=FLOWMAP)
+            fig.legend(loc =(1.1,1.05))
             plt.savefig(f"../viz/{pltname}.pdf", transparent=True, bbox_inches="tight")
 
 def scatter_flow_power(flow_power_df, pltname, x='value', y='z_beta', **kwargs):
@@ -261,7 +271,7 @@ def main(argv):
     logger.info(f"Runinng pipeline on {len(subjlist)} subjects")
     subjlist_verified = verify_subjlist(subjlist, flowdir, powdir)
     
-    subjlist_verified = subjlist[0:5]
+    subjlist_verified = subjlist
     match pipeline:
         case "full_plot":
             center_seizure_onset(subjlist_verified, **kwargs)
