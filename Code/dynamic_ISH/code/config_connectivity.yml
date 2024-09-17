@@ -8,5 +8,12 @@ ei_bal:
 power:
   num_cores: 24
   bands : ['delta', 'beta']
-
+plt_flow_power:
+  num_cores: 6
+  band: "beta"
+  pipeline: "center"
+  merged_fname : merged_flow_pow_full.csv
+  plot_type : 'kde'
+  y : 'value'
+  pre_merged : False
 pipeline: 'power'

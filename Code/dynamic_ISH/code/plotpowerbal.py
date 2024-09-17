@@ -76,19 +76,32 @@ def load_dfs(flow_fname, power_fname):
     assert len(set(flow_df.eventID)) == len(set(power_df.eventID)), "need same number of events!"
     return flow_df, power_df
 
-def plot_flow_power(flow_power_df, pltname, band='beta'):
+def kde_flow_power(flow_power_df, pltname, x='value',y='z_beta', **kwargs):
      with sns.plotting_context("paper"):
             grid = sns.FacetGrid(flow_power_df, row='source',row_order=['nz','soz'],
                                 col='win_label', 
                                 col_order=['interictal', 'pre_ictal','early_ictal','ictal','late_ictal','early_post_ictal','post_ictal'],
                                 legend_out=True
                                 ) 
-            ax = grid.map_dataframe(sns.kdeplot, y='value',x='z_beta', hue='region_involved')
+            ax = grid.map_dataframe(sns.kdeplot, y=y,x=x, hue='region_involved')
             grid.add_legend()
-            grid.figure.suptitle(f"Peri-ictal Flow vs {band} Power",y=1.0)
+            grid.figure.suptitle(f"Peri-ictal {x} vs {y} Power",y=1.0)
             plt.savefig(f"../viz/{pltname}.pdf", transparent=True, bbox_inches="tight")
 
-def run_subject(subject, power_dir="/mnt/ernie_main/Ghassan/ephys/data/ei_bal/", flow_dir="/mnt/ernie_main/Price/ephys/data/periconnectivity", **kwargs):
+def scatter_flow_power(flow_power_df, pltname, x='value', y='z_beta', **kwargs):
+     with sns.plotting_context("paper"):
+            grid = sns.FacetGrid(flow_power_df, row='source',row_order=['nz','soz'],
+                                col='win_label', 
+                                col_order=['interictal', 'pre_ictal','early_ictal','ictal','late_ictal','early_post_ictal','post_ictal'],
+                                legend_out=True
+                                ) 
+            ax = grid.map_dataframe(sns.scatterplot, y=y,x=x, hue='region_involved')
+            grid.add_legend()
+            grid.figure.suptitle(f"Peri-ictal {x} vs {y} Power",y=1.0)
+            plt.savefig(f"../viz/{pltname}.pdf", transparent=True, bbox_inches="tight")
+
+
+def load_merge_subject(subject, power_dir="/mnt/ernie_main/Ghassan/ephys/data/ei_bal/", flow_dir="/mnt/ernie_main/Price/ephys/data/periconnectivity", **kwargs):
     """Given a subject, coordinates dataframe loading
     and merging, then generates plots for power vs connectivity
 
@@ -111,14 +124,19 @@ def run_subject(subject, power_dir="/mnt/ernie_main/Ghassan/ephys/data/ei_bal/",
     return merge_flow_power(flow_df, power_df, **kwargs)
 
 def center_seizure_onset(subjects, power_dir="/mnt/ernie_main/Ghassan/ephys/data/ei_bal/", flow_dir="/mnt/ernie_main/Price/ephys/data/periconnectivity", **kwargs):
-    
+    pre_centered = 0
     for subject in subjects:
-
         centered_pow_dfs = []
         centered_flow_dfs = []
         # for event in events ids
         pow_fname = os.path.join(power_dir, f"power_bal_{subject}.csv")
         flow_fname = os.path.join(flow_dir, f"peri_ictal_flow_verbose_{subject}.csv")
+
+        pow_c_fname = pow_fname.replace(".csv", "_centered.csv")
+        flow_c_fname = flow_fname.replace('.csv', '_centered.csv')
+        if os.path.exists(pow_c_fname) and os.path.exists(flow_c_fname):
+            pre_centered +=1
+            continue
         #maybe assert that there is a file in each glob before indexing?
         flow_df, power_df = load_dfs(flow_fname, pow_fname)
         for event in set(power_df.eventID.values):
@@ -130,43 +148,58 @@ def center_seizure_onset(subjects, power_dir="/mnt/ernie_main/Ghassan/ephys/data
             centered_ev_power = center_onset(pow_event_df)
             centered_pow_dfs.append(centered_ev_power)
         
-        pow_fname = pow_fname.replace(".csv", "_centered.csv")
-        flow_fname = flow_fname.replace('.csv', '_centered.csv')
-
         centered_flow_dfs = pd.concat(centered_flow_dfs)
         centered_pow_dfs = pd.concat(centered_pow_dfs)
         
-        centered_flow_dfs.to_csv(flow_fname)
-        centered_pow_dfs.to_csv(pow_fname)
+        centered_flow_dfs.to_csv(flow_c_fname)
+        centered_pow_dfs.to_csv(pow_c_fname)
+    logger.info(f"Centered: {len(subjects)- pre_centered} subjects' flow and power csvs to seizure onset")
+    
+def verify_subjlist(subjlist, flow_dir, pow_dir):
+    """returns a list of subjects that has both verbose flow and verbose power csvs"""
+    verify_list = []
+    for sub in subjlist:
+        flow_f = os.path.join(flow_dir, f"peri_ictal_flow_verbose_{sub}.csv")
+        pow_f = os.path.join(pow_dir,  f"power_bal_{sub}.csv")
+        if os.path.exists(flow_f) and os.path.exists(pow_f):
+            verify_list.append(sub)
+    diff = set(subjlist).difference(verify_list)
+    if len(diff) > 0:
+        logger.warning(f"The following patients were not aligned across power and flow csvs: {diff}")
+    return verify_list
 
 
-def plot_subjects(subjects, num_cores=20, **kwargs):
+def load_merge_all(subjects, num_cores=20, merged_fname="merged_df", **kwargs):
     #may need to have spec test for certain centering 
     # if len(glob.glob(os.path.join(kwargs['power_dir'], "*_centered.csv"))) < len(subjects):
     #     logger.info("Centering Seizure events first!")
     #     center_seizure_onset(subjects, **kwargs)
-    logger.info("centering subjects")
-    center_seizure_onset(subjects, **kwargs)
-
     logger.info(f"Loading subjects {len(subjects)}")
     if len(subjects) == 1:
         #for debugging purposes
-        merged_dfs = run_subject(subjects[0], **kwargs)
+        merged_dfs = load_merge_subject(subjects[0], **kwargs)
     elif len(subjects) >1:
         num_cores = min(len(subjects), num_cores)
         p = Pool(num_cores)
-        merged_dfs = p.map(partial(run_subject, **kwargs), subjects)
+        merged_dfs = p.map(partial(load_merge_subject, **kwargs), subjects)
         p.close()
         p.join()
         merged_dfs = [m_df for m_df in merged_dfs if not m_df.empty]
         merged_dfs = pd.concat(merged_dfs)
     logger.success(f"Merged and loaded {len(subjects)}")
-    
-    pltname = kwargs['pltname']
-    band = kwargs['band']
-    merged_dfs.to_csv("/mnt/ernie_main/Ghassan/ephys/data/merged_flow_power10.csv")
+    merged_dfs.to_csv(merged_fname)
+    logger.info(f"Saved merged df to {merged_fname}")
+
+def plot_subjects(merged_dfs, pltname='flow_pow.pdf', band='beta', plot_type='kde', **kwargs):   
+    #TODO maybe make x more modular
+    x = f"z_{band}"
     logger.info("About to plot kde peri-ictal")
-    plot_flow_power(merged_dfs, pltname, band)
+    match plot_type:
+        case "kde":
+            kde_flow_power(merged_dfs, pltname,x=x, **kwargs)
+        case "scatter":
+            scatter_flow_power(merged_dfs, pltname, x=x, **kwargs)
+
     logger.success(f"plotting successful! Saved plots to {pltname}")
 
 
@@ -175,11 +208,11 @@ def main(argv):
     kwargs = {}
     opts, _ = getopt.getopt(argv,"s:f:p:t:c:l:",["subjlist=","flowdir=",'powdir=',"plotname=",'config=','logdir='])
     for opt, arg in opts:
-        if opt in ("-s", "subjlist"):
+        if opt in ("-s", "subjlist="):
             subjlist = arg
-        elif opt in ('-f', '--flowdir'):
+        elif opt in ('-f', '--flowdir='):
             flowdir = arg
-        elif opt in ("-p", '--powdir'):
+        elif opt in ("-p", '--powdir='):
             powdir = arg
         elif opt in ("-t","--plotname="):
             pltname = arg
@@ -188,17 +221,37 @@ def main(argv):
             with open(config_f, 'r') as f:
                     config =  yaml.safe_load(f)
             kwargs = config['plt_flow_power']
-        elif opt in ("-l", "--logdir"):
+        elif opt in ("-l", "--logdir="):
             logdir = arg
     logger.add(os.path.join(logdir, "pow_flow_plot_run.log"), enqueue=True,level=40)
     kwargs['pltname'] = pltname
     kwargs['power_dir'] = powdir
     kwargs['flow_dir'] = flowdir
+    pipeline = kwargs['pipeline'] if 'pipeline' in kwargs.keys() else 'plot_center'
     logger.info(f"Running pipeline with following kwargs:\n\t\t\t\t{kwargs}")
     subjlist = pd.read_csv(subjlist,index_col=False, header=None)
     subjlist = [s[0] for s in subjlist.values] ## parse out 
     logger.info(f"Runinng pipeline on {len(subjlist)} subjects")
-    plot_subjects(subjlist[0:5], **kwargs)
+    subjlist_verified = verify_subjlist(subjlist, flowdir, powdir)
+    
+    
+    match pipeline:
+        case "full_plot":
+            center_seizure_onset(subjlist_verified, **kwargs)
+            merged_dfs = load_merge_all(subjlist_verified, **kwargs)
+            plot_subjects(merged_dfs, **kwargs)
+        case "merge_plot":
+            merged_dfs = load_merge_all(subjlist_verified, **kwargs)
+            plot_subjects(merged_dfs, **kwargs)
+        case "center":
+            logger.info("Centering Subjects")
+            center_seizure_onset(subjlist_verified, **kwargs)
+        case "merge":
+            load_merge_all(subjlist_verified, **kwargs)
+        case "plot":
+            assert kwargs['pre_merged'], "Need to merge flow and power csv files first!"
+            merged_dfs = pd.read_csv(kwargs['merged_fname'])
+            plot_subjects(merged_dfs, **kwargs)
 
 if __name__ == '__main__':
     with logger.catch():
