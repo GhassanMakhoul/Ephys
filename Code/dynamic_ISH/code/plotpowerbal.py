@@ -44,7 +44,7 @@ def get_involved_inds(event_df, band="beta", threshold=2):
     return event_df
 
 
-def merge_flow_power(flow_df: pd.DataFrame, power_df: pd.DataFrame, band='beta',**kwargs):
+def merge_flow_power(flow_df: pd.DataFrame, power_df: pd.DataFrame, subsample=1, band='beta',**kwargs):
     """merge bipole level peri_ictal flow_df to beta power channel
     assumes that eventID is same types and that there is an equal number
     of events between the flow_df and the power_df"""
@@ -63,8 +63,32 @@ def merge_flow_power(flow_df: pd.DataFrame, power_df: pd.DataFrame, band='beta',
         df['region_involved'] = df.apply( \
             lambda x: f"{x['source']}_{x['target']}_{x['beta_involved']}",\
             axis=1)
+        if subsample > 1:
+            df = subsample_df(df, groups=['source','win_label','region_involved'])
         power_flow_dfs.append(df)
     return pd.concat(power_flow_dfs)
+
+def subsample_df(df:pd.DataFrame, factor:int, random_state=42, groups=['win_label'])->pd.DataFrame:
+    """Returns a subsampled dataframe that selects samples along groupings 
+    specified by GROUPS arg.
+
+    Args:
+        df (pd.DataFrame): dataframe to resample, often a peri-ictal verbose df
+        factor (int): amount to refactor sample by 2 -> return half the sample, 5-> 1/5 samples returned
+        groups (list, optional): stratifications to segment df by,. Defaults to ['win_label'].
+
+    Returns:
+        pd.DataFrame: returns subsampled df
+    """
+    logger.info(f"Original data frame has {len(df)} row")
+    group_df = df.groupby(by=groups)
+    count_df= group_df.count()
+    min_grp_size = min(count_df.values)
+    resamp_df = group_df.sample(min_grp_size//factor, random_state=random_state)
+    logger.info(f"New dataframe has {len(resamp_df)} rows with {min_grp_size//factor} samples per group")
+    return resamp_df
+    
+
 
 def load_dfs(flow_fname, power_fname):
     """Loads the channel level connectivity and power dataframes"""
@@ -234,7 +258,7 @@ def main(argv):
     logger.info(f"Runinng pipeline on {len(subjlist)} subjects")
     subjlist_verified = verify_subjlist(subjlist, flowdir, powdir)
     
-    
+    subjlist_verified = subjlist[0:5]
     match pipeline:
         case "full_plot":
             center_seizure_onset(subjlist_verified, **kwargs)
