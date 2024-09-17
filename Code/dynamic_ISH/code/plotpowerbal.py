@@ -64,7 +64,7 @@ def merge_flow_power(flow_df: pd.DataFrame, power_df: pd.DataFrame, subsample=1,
             lambda x: f"{x['source']}_{x['target']}_{x['beta_involved']}",\
             axis=1)
         if subsample > 1:
-            df = subsample_df(df, groups=['source','win_label','region_involved'])
+            df = subsample_df(df, subsample, groups=['source','win_label','region_involved'])
         power_flow_dfs.append(df)
     return pd.concat(power_flow_dfs)
 
@@ -80,14 +80,17 @@ def subsample_df(df:pd.DataFrame, factor:int, random_state=42, groups=['win_labe
     Returns:
         pd.DataFrame: returns subsampled df
     """
-    logger.info(f"Original data frame has {len(df)} row")
+    n_rows = len(df)
+    logger.info(f"Original data frame has {n_rows} row")
     group_df = df.groupby(by=groups)
     count_df= group_df.count()
-    min_grp_size = min(count_df.values)
-    resamp_df = group_df.sample(min_grp_size//factor, random_state=random_state)
-    logger.info(f"New dataframe has {len(resamp_df)} rows with {min_grp_size//factor} samples per group")
+    min_grp_size = min(count_df.min().values)
+    n_resamp = max(n_rows//factor, min_grp_size)
+    resamp_df = group_df.sample(n_resamp, random_state=random_state,replace=True)
+    resamp_df = resamp_df.drop_duplicates()
+    logger.info(f"New dataframe has {len(resamp_df)} rows with minimum {max(min_grp_size//factor,min_grp_size)} samples per group.\
+            \n\t\t\t\t\tSubsample factor : {n_rows/len(resamp_df)} \n\t\t\t\t\tOriginal supsample factor: {factor}")
     return resamp_df
-    
 
 
 def load_dfs(flow_fname, power_fname):
@@ -101,15 +104,15 @@ def load_dfs(flow_fname, power_fname):
     return flow_df, power_df
 
 def kde_flow_power(flow_power_df, pltname, x='value',y='z_beta', **kwargs):
+     grp_flowpow_df = flow_power_df.groupby(['win_label','source'])
      with sns.plotting_context("paper"):
-            grid = sns.FacetGrid(flow_power_df, row='source',row_order=['nz','soz'],
-                                col='win_label', 
-                                col_order=['interictal', 'pre_ictal','early_ictal','ictal','late_ictal','early_post_ictal','post_ictal'],
-                                legend_out=True
-                                ) 
-            ax = grid.map_dataframe(sns.kdeplot, y=y,x=x, hue='region_involved')
-            grid.add_legend()
-            grid.figure.suptitle(f"Peri-ictal {x} vs {y} Power",y=1.0)
+            fig, axs = plt.subplots(2,7, sharex=True, sharey=True):
+            for source, i in enumerate(['nz', 'soz']):
+                for period, t, in enumerate(['interictal', 'pre_ictal','early_ictal','ictal','late_ictal','early_post_ictal','post_ictal']):
+                    ax = axs[i,t]
+                    plot_df = grp_flowpow_df.get_group((period, source))
+                    sns.kdeplot(data=plot_df, x=x, y=y, hue='region_involved', legend=True, ax=ax, palette=FLOWMAP)
+
             plt.savefig(f"../viz/{pltname}.pdf", transparent=True, bbox_inches="tight")
 
 def scatter_flow_power(flow_power_df, pltname, x='value', y='z_beta', **kwargs):
@@ -199,9 +202,9 @@ def load_merge_all(subjects, num_cores=20, merged_fname="merged_df", **kwargs):
     #     logger.info("Centering Seizure events first!")
     #     center_seizure_onset(subjects, **kwargs)
     logger.info(f"Loading subjects {len(subjects)}")
-    if len(subjects) == 1:
+    if len(subjects) <2 :
         #for debugging purposes
-        merged_dfs = load_merge_subject(subjects[0], **kwargs)
+        merged_dfs =[ load_merge_subject(subj, **kwargs) for subj in subjects]
     elif len(subjects) >1:
         num_cores = min(len(subjects), num_cores)
         p = Pool(num_cores)
@@ -209,7 +212,7 @@ def load_merge_all(subjects, num_cores=20, merged_fname="merged_df", **kwargs):
         p.close()
         p.join()
         merged_dfs = [m_df for m_df in merged_dfs if not m_df.empty]
-        merged_dfs = pd.concat(merged_dfs)
+    merged_dfs = pd.concat(merged_dfs)
     logger.success(f"Merged and loaded {len(subjects)}")
     merged_dfs.to_csv(merged_fname)
     logger.info(f"Saved merged df to {merged_fname}")
@@ -217,7 +220,7 @@ def load_merge_all(subjects, num_cores=20, merged_fname="merged_df", **kwargs):
 def plot_subjects(merged_dfs, pltname='flow_pow.pdf', band='beta', plot_type='kde', **kwargs):   
     #TODO maybe make x more modular
     x = f"z_{band}"
-    logger.info("About to plot kde peri-ictal")
+    logger.info(f"About to plot peri-ictal {plot_type}")
     match plot_type:
         case "kde":
             kde_flow_power(merged_dfs, pltname,x=x, **kwargs)
