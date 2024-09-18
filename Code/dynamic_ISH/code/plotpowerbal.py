@@ -103,7 +103,13 @@ def load_dfs(flow_fname, power_fname):
     assert len(set(flow_df.eventID)) == len(set(power_df.eventID)), "need same number of events!"
     return flow_df, power_df
 
-def kde_flow_power(flow_power_df, pltname, x='value',y='z_beta', **kwargs):
+
+
+#TODO separate out connection types into certain plots
+# 1. first plot Nz_soz_true, nz_soz_false, nz_nz_true
+# 2. Z-score PDC against interictal period
+
+def kde_flow_power(flow_power_df, pltname, y='value',x='z_beta', title="", **kwargs):
      grp_flowpow_df = flow_power_df.groupby(['win_label','source'])
      with sns.plotting_context("paper"):
             fig, axs = plt.subplots(2,7, sharex=True, sharey=True)
@@ -122,10 +128,28 @@ def kde_flow_power(flow_power_df, pltname, x='value',y='z_beta', **kwargs):
                         sns.move_legend(ax, "lower left", bbox_to_anchor=(2,2) )
                     else:
                         ax = sns.kdeplot(data=plot_df, x=x, y=y, hue='region_involved', legend=False, ax=ax, palette=FLOWMAP)
-            fig.legend(loc =(1.1,1.05))
+                    ax.title.set_text(f"{period} -Flow from {source} vs {x}")
+            plt.suptitle(title)
             plt.savefig(f"../viz/{pltname}.pdf", transparent=True, bbox_inches="tight")
 
-def scatter_flow_power(flow_power_df, pltname, x='value', y='z_beta', **kwargs):
+def joint_kde_flow_power(flow_power_df, pltname, y='value',x='z_beta', title="", **kwargs):
+     grp_flowpow_df = flow_power_df.groupby(['win_label','source'])
+     with sns.plotting_context("paper"):
+            #TODO consider removing enumeration
+            for i, source in enumerate(['nz', 'soz']):
+                for t, period, in enumerate(['interictal', 'pre_ictal','early_ictal','ictal','late_ictal','early_post_ictal','post_ictal']):
+                    plt.figure(figsize=(15,30))
+                    plot_df = grp_flowpow_df.get_group((period, source))
+                    ax = sns.jointplot(data=plot_df, x=x, y=y, kind='kde', hue='region_involved', legend=True, palette=FLOWMAP)
+                        #sns.move_legend(og_ax, "upper left", bbox_to_anchor=(1, 1))
+                    plt.suptitle(f"{period} -Flow from {source} vs {x}")
+                    out_f = f"../viz/{pltname}_source_{source}_{period}.pdf"
+                    plt.savefig(out_f, transparent=True, bbox_inches="tight")
+                    logger.success(f"Saved {out_f}")
+                    plt.close()
+
+
+def scatter_flow_power(flow_power_df, pltname, y='value', x='z_beta', **kwargs):
      with sns.plotting_context("paper"):
             grid = sns.FacetGrid(flow_power_df, row='source',row_order=['nz','soz'],
                                 col='win_label', 
@@ -174,17 +198,7 @@ def center_seizure_onset(subjects, power_dir="/mnt/ernie_main/Ghassan/ephys/data
         if os.path.exists(pow_c_fname) and os.path.exists(flow_c_fname):
             pre_centered +=1
             continue
-        #maybe assert that there is a file in each glob before indexing?
-        flow_df, power_df = load_dfs(flow_fname, pow_fname)
-        for event in set(power_df.eventID.values):
-            pow_event_df = power_df[power_df.eventID == event]
-            flow_event_df =flow_df[flow_df.eventID == event]
-            centered_ev_flow = center_onset(flow_event_df)
-            centered_flow_dfs.append(centered_ev_flow)
-        
-            centered_ev_power = center_onset(pow_event_df)
-            centered_pow_dfs.append(centered_ev_power)
-        
+        #maybe assert that there is a file : UserWaruse joinning: Ignoring `ax`; jointplot is a figure-level function.
         centered_flow_dfs = pd.concat(centered_flow_dfs)
         centered_pow_dfs = pd.concat(centered_pow_dfs)
         
@@ -236,6 +250,8 @@ def plot_subjects(merged_dfs, pltname='flow_pow.pdf', band='beta', plot_type='kd
             kde_flow_power(merged_dfs, pltname,x=x, **kwargs)
         case "scatter":
             scatter_flow_power(merged_dfs, pltname, x=x, **kwargs)
+        case "joint_kde":
+            joint_kde_flow_power(merged_dfs, pltname, **kwargs)
 
     logger.success(f"plotting successful! Saved plots to {pltname}")
 
