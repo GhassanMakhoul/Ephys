@@ -56,7 +56,7 @@ def merge_flow_power(flow_df: pd.DataFrame, power_df: pd.DataFrame, subsample=1,
         assert "win_sz_centered" in flow_event_df.columns, "Need to center flow first!"
         assert "win_sz_centered" in pow_event_df.columns, "Need to center flow first!"
    
-        df = pow_event_df[['bip','z_beta','win_sz_centered', f'{band}_involved']].merge(\
+        df = pow_event_df[['bip','z_beta','win_sz_centered', f'{band}_involved',"anat_region","sz_type"]].merge(\
             flow_event_df,how='right',
             right_on=['win_sz_centered','src_bip'],
             left_on=['win_sz_centered','bip'])
@@ -109,13 +109,39 @@ def load_dfs(flow_fname, power_fname):
 # 1. first plot Nz_soz_true, nz_soz_false, nz_nz_true
 # 2. Z-score PDC against interictal period
 
-def kde_flow_power(flow_power_df, pltname, y='value',x='z_beta', title="", **kwargs):
+def joint_kde_flow_power_plotter(flow_power_df, pltname, relationships='all', sz_types=[] ,**kwargs):
+    #NOTE holy shit recursion is useful sometimes
+    if len(sz_types) > 1:
+        sz_type_df = flow_power_df[flow_power_df.sz_type == sz_types[0]]
+        sz_pltname = f"{sz_types[0]}_{pltname}"
+        joint_kde_flow_power(sz_type_df, sz_pltname, relationships=relationships, sz_types=[])
+        joint_kde_flow_power(flow_power_df, pltname, relationships='all', sz_types=sz_types[1:]) # do subtyping here
+    elif len(sz_types) == 1:
+        flow_power_df = flow_power_df[flow_power_df.sz_type == sz_types[0]]
+        pltname = f"{sz_types[0]}_{pltname}"
+    if relationships == 'all':
+         #NOTE make more modular to accomodate any grouping ?
+       joint_kde_flow_power(flow_power_df, pltname, **kwargs)
+    else:
+        for rel in relationships:
+            #assyne that list of lists is passed for this
+            plot_df = flow_power_df[flow_power_df.region_involved.isin(rel)]
+            rel_pltname = f"{pltname}_{rel}"
+            # assumes following formatting: "src_trgt_szBoolean"
+            # TODO reference the sources from leftover df? check df in live sesh
+            sources = list(set([rel.split("_")[0] for r in rel]))
+            joint_kde_flow_power(plot_df, rel_pltname, sources=sources, **kwargs)
+    # if want to segment by seizure type and relatinoships
+    # call joint_kde_flow_power on one seizure recursively, then call back to joint_kde_power with remaining list?
+
+def kde_flow_power(flow_power_df, pltname, y='value',x='z_beta', title="", sources= ['nz', 'soz'],relationships="all", **kwargs):
+     
      grp_flowpow_df = flow_power_df.groupby(['win_label','source'])
      with sns.plotting_context("paper"):
             fig, axs = plt.subplots(2,7, sharex=True, sharey=True)
             fig.set_figheight(15)
             fig.set_figwidth(30)
-            for i, source in enumerate(['nz', 'soz']):
+            for i, source in enumerate(sources):
                 for t, period, in enumerate(['interictal', 'pre_ictal','early_ictal','ictal','late_ictal','early_post_ictal','post_ictal']):
                     ax = axs[i][t]
                     plot_df = grp_flowpow_df.get_group((period, source))
@@ -132,11 +158,11 @@ def kde_flow_power(flow_power_df, pltname, y='value',x='z_beta', title="", **kwa
             plt.suptitle(title)
             plt.savefig(f"../viz/{pltname}.pdf", transparent=True, bbox_inches="tight")
 
-def joint_kde_flow_power(flow_power_df, pltname, y='value',x='z_beta', title="", **kwargs):
+def joint_kde_flow_power(flow_power_df, pltname, y='value',x='z_beta', sources=['nz','soz'], title="", **kwargs):
      grp_flowpow_df = flow_power_df.groupby(['win_label','source'])
      with sns.plotting_context("paper"):
             #TODO consider removing enumeration
-            for i, source in enumerate(['nz', 'soz']):
+            for i, source in enumerate(sources):
                 for t, period, in enumerate(['interictal', 'pre_ictal','early_ictal','ictal','late_ictal','early_post_ictal','post_ictal']):
                     plt.figure(figsize=(15,30))
                     plot_df = grp_flowpow_df.get_group((period, source))
@@ -251,7 +277,7 @@ def plot_subjects(merged_dfs, pltname='flow_pow.pdf', band='beta', plot_type='kd
         case "scatter":
             scatter_flow_power(merged_dfs, pltname, x=x, **kwargs)
         case "joint_kde":
-            joint_kde_flow_power(merged_dfs, pltname, **kwargs)
+            joint_kde_flow_power_plotter(merged_dfs, pltname, **kwargs)
 
     logger.success(f"plotting successful! Saved plots to {pltname}")
 

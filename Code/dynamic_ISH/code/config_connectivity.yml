@@ -11,10 +11,11 @@ power:
 plt_flow_power:
   num_cores: 10
   band: "beta"
-  pipeline: "plot"
-  merged_fname : merged_flow_pow_subsampFull.csv
+  pipeline: "merge"
+  merged_fname : merged_flow_pow_subsampFull_anat.csv
   plot_type : 'joint_kde'
   title : 'Directed Connectivity vs. Seizure Involvement'
+  relationships : []
   subsample : 5000
   random_state : 69420
   y : 'value'
