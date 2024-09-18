@@ -36,7 +36,7 @@ def get_involved_inds(event_df, band="beta", threshold=2):
     and returns a column detailing which bipoles are involved as BANDS_increased"""
     ictal_df = event_df[event_df.win_label.isin(['early_ictal','ictal','late_ictal'])]
     ictal_bip_df = ictal_df[['bip', f'z_{band}',]].groupby('bip').mean().reset_index()
-    # get regions with > threshold power
+    # get channels that on average achieve a z_score above  threshold power
     thresh_bool = ictal_bip_df[f'z_{band}'].values > threshold
     power_dict = dict(zip(ictal_bip_df.bip, thresh_bool))
     all_bip_thresh = event_df.bip.apply(lambda x: power_dict[x])
@@ -56,7 +56,7 @@ def merge_flow_power(flow_df: pd.DataFrame, power_df: pd.DataFrame, subsample=1,
         assert "win_sz_centered" in flow_event_df.columns, "Need to center flow first!"
         assert "win_sz_centered" in pow_event_df.columns, "Need to center flow first!"
    
-        df = pow_event_df[['bip','z_beta','win_sz_centered', f'{band}_involved',"anat_region","sz_type"]].merge(\
+        df = pow_event_df[['bip','z_beta','win_sz_centered', f'{band}_involved',"anat_region"]].merge(\
             flow_event_df,how='right',
             right_on=['win_sz_centered','src_bip'],
             left_on=['win_sz_centered','bip'])
@@ -81,7 +81,7 @@ def subsample_df(df:pd.DataFrame, factor:int, random_state=42, groups=['win_labe
         pd.DataFrame: returns subsampled df
     """
     n_rows = len(df)
-    logger.info(f"Original data frame has {n_rows} row")
+    logger.info(f"Original data frame has {n_rows} rows")
     group_df = df.groupby(by=groups)
     count_df= group_df.count()
     min_grp_size = min(count_df.min().values)
@@ -129,7 +129,7 @@ def joint_kde_flow_power_plotter(flow_power_df, pltname, relationships='all', sz
             rel_pltname = f"{pltname}_{rel}"
             # assumes following formatting: "src_trgt_szBoolean"
             # TODO reference the sources from leftover df? check df in live sesh
-            sources = list(set([rel.split("_")[0] for r in rel]))
+            sources = list(plot_df.source.unique())
             joint_kde_flow_power(plot_df, rel_pltname, sources=sources, **kwargs)
     # if want to segment by seizure type and relatinoships
     # call joint_kde_flow_power on one seizure recursively, then call back to joint_kde_power with remaining list?
@@ -210,6 +210,37 @@ def load_merge_subject(subject, power_dir="/mnt/ernie_main/Ghassan/ephys/data/ei
     
     return merge_flow_power(flow_df, power_df, **kwargs)
 
+#NOTE: I hate that I have to do this, should have z_scored verbose calculations
+# at the initial compilation but for now, I'll post-hoc z-score
+#TODO in future re-analysis add z-score verbose option
+
+def  load_merge_score_subject(subject, power_dir="/mnt/ernie_main/Ghassan/ephys/data/ei_bal/", flow_dir="/mnt/ernie_main/Price/ephys/data/periconnectivity", **kwargs):
+    """same as above except includes a step for z_scoring connectivity matrix at biipole level against
+        the interictal period    """
+    try:
+        pow_fname = os.path.join(power_dir, f"power_bal_{subject}_centered.csv")
+        assert os.path.exists(pow_fname)
+        flow_fname = os.path.join(flow_dir, f"peri_ictal_flow_verbose_{subject}_centered.csv")
+        assert os.path.exists(flow_fname)
+    except AssertionError:
+        logger.warning(f"Subject {subject} not found in flow and power!")
+        return pd.DataFrame()
+    #maybe assert that there is a file in each glob before indexing?
+    flow_df, power_df = load_dfs(flow_fname, pow_fname)
+    ## INSERT Z score here
+    z_flow_df = z_score_all_avents(flow_df)
+    return merge_flow_power(z_flow_df, power_df, **kwargs)
+
+def z_score_all_events(flow_df):
+    """Iterate through all events and z=scure each
+    bipoles connectivity values against the interictal period
+
+    Args:
+        flow_df (pd.DataFrame): df of verbose flow, channel level connectivity (in a source target format)
+    """
+    return #do stuff
+
+
 def center_seizure_onset(subjects, power_dir="/mnt/ernie_main/Ghassan/ephys/data/ei_bal/", flow_dir="/mnt/ernie_main/Price/ephys/data/periconnectivity", **kwargs):
     pre_centered = 0
     for subject in subjects:
@@ -267,17 +298,20 @@ def load_merge_all(subjects, num_cores=20, merged_fname="merged_df", **kwargs):
     merged_dfs.to_csv(merged_fname)
     logger.info(f"Saved merged df to {merged_fname}")
 
-def plot_subjects(merged_dfs, pltname='flow_pow.pdf', band='beta', plot_type='kde', **kwargs):   
+def plot_subjects(merged_df, pltname='flow_pow.pdf', band='beta', plot_type='kde', conn_band="all",**kwargs):   
     #TODO maybe make x more modular
     x = f"z_{band}"
+    if conn_band != "all":
+        merged_df = merged_df[merged_df.freq_band ==conn_band]
+        pltname = f"{pltname}_{conn_band.upper()}"
     logger.info(f"About to plot peri-ictal {plot_type}")
     match plot_type:
         case "kde":
-            kde_flow_power(merged_dfs, pltname,x=x, **kwargs)
+            kde_flow_power(merged_df, pltname,x=x, **kwargs)
         case "scatter":
-            scatter_flow_power(merged_dfs, pltname, x=x, **kwargs)
+            scatter_flow_power(merged_df, pltname, x=x, **kwargs)
         case "joint_kde":
-            joint_kde_flow_power_plotter(merged_dfs, pltname, **kwargs)
+            joint_kde_flow_power_plotter(merged_df, pltname, **kwargs)
 
     logger.success(f"plotting successful! Saved plots to {pltname}")
 
@@ -313,7 +347,7 @@ def main(argv):
     logger.info(f"Runinng pipeline on {len(subjlist)} subjects")
     subjlist_verified = verify_subjlist(subjlist, flowdir, powdir)
     
-    subjlist_verified = subjlist
+    subjlist_verified = subjlist_verified
     match pipeline:
         case "full_plot":
             center_seizure_onset(subjlist_verified, **kwargs)
