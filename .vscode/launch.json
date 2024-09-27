@@ -1,0 +1,23 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python Debugger: Current File",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "cwd":"/home/ghassan/Documents/Research/Ephys/Code/dynamic_ISH/code",
+            "args": ["-s", "subjlist.csv",
+                     "-f","/mnt/ernie_main/Price/ephys/data/periconnectivity",
+                     "-p", "/mnt/ernie_main/Ghassan/ephys/data/ei_bal/",
+                     "-c", "config_connectivity.yml",
+                     "-l", "~/Documents/Research/Ephys/Code/dynamic_ISH/logs/",
+                     "-t", "tst_subsamp.pdf"
+                   ]
+        }
+    ]
+}
