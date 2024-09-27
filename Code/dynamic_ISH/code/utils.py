@@ -23,6 +23,31 @@ DIR = '/mnt/ernie_main/000_Data/SEEG/SEEG_EyesClosed_RestingState/results/Graham
 DTYPE = h5py.special_dtype(vlen=str)
 COLOR_MAP= {'pz':'#D95319', 'soz': "#A2142F", "nz":"#0072BD", "niz":"#0072BD", 
             'pz_soz': '#D95319', 'soz_soz': "#A2142F", "nz_soz":"#0072BD"}
+COLOR_MAP['niz_soz'] = COLOR_MAP['soz']
+COLOR_MAP['niz_pz'] = COLOR_MAP['pz']
+COLOR_MAP['niz_niz'] = COLOR_MAP['nz']
+FLOWMAP  = {'nz_soz_False':"#00bdaa", 'pz_soz_False':"#bdb400", 'pz_nz_True':"#00bd58", 
+            'nz_pz_False':"#9700bd", 'pz_nz_False':"#00bd2c", 'nz_nz_True':"#9400bd", 'soz_pz_False':"#bd6e00",
+            'pz_pz_False':"#d98919", 'pz_soz_True': "#bdb000", 'soz_soz_False':"#bd0078", 'soz_nz_True':"#bd6e00",
+            'nz_soz_True': "#0072BD", 'nz_nz_False' : "#2000bd", 'soz_soz_True':"#A2142F", 'nz_pz_True':"#00bd09", 
+            'pz_pz_True':"#D95319", 'soz_pz_True':"#bd9400", 'soz_nz_False':"#00bd45"}
+
+ctx_keys = {'nz_nz_True_outCTX', 'nz_soz_False_outCTX', 'nz_soz_False_ctx', 'nz_pz_False_ctx', 
+            'nz_pz_True_ctx', 'nz_pz_False_outCTX', 'nz_soz_True_ctx', 'nz_nz_False_outCTX',
+            'nz_nz_True_ctx', 'nz_nz_False_ctx', 'nz_soz_True_outCTX', 'nz_pz_True_outCTX',
+            'soz_nz_False_outCTX', 'soz_pz_False_ctx', 'soz_pz_True_ctx', 'soz_nz_False_ctx', 
+            'soz_nz_True_ctx', 'soz_soz_False_outCTX', 'soz_soz_False_ctx', 'soz_nz_True_outCTX',
+            'soz_soz_True_ctx', 'soz_pz_True_outCTX', 'soz_soz_True_outCTX', 'soz_pz_False_outCTX'}
+
+#nz_nz_True:"#9400bd"
+#nz_nz_False : "#2000bd"
+
+for key in ctx_keys:
+    og_key = "_".join(key.split("_")[0:3])
+    hex_color = FLOWMAP[og_key]
+    if "outCTX" in key:
+        hex_color = hex_color[0:-2] + "00"
+    FLOWMAP[key] = hex_color
 keys = list(COLOR_MAP.keys())
 for key in keys:
     COLOR_MAP[key.upper()] = COLOR_MAP[key]
@@ -148,6 +173,26 @@ def map_label(label):
         case 3:
             return 'IZ'
         
+#TODO refactor subsample
+
+# def subsample_df(df:pd.DataFrame, factor:int, random_state=42, groups=['win_label'])->pd.DataFrame:
+#     """Returns a subsampled dataframe that selects samples along groupings 
+#     specified by GROUPS arg.
+
+#     Args:
+#         df (pd.DataFrame): dataframe to resample, often a peri-ictal verbose df
+#         factor (int): amount to refactor sample by 2 -> return half the sample, 5-> 1/5 samples returned
+#         groups (list, optional): stratifications to segment df by,. Defaults to ['win_label'].
+
+#     Returns:
+#         pd.DataFrame: returns subsampled df
+#     """
+
+#     group_df = df.groupby(by=groups)
+#     count_df= group_df.count()
+#     min_grp_size = min(count_df.values)
+#     resamp_df = group_df.sample(min_grp_size//factor, random_state=random_state)
+#     return resamp_df
 
 def format_soz(soz_labels):
     return [map_label(l) for l in soz_labels]
