@@ -404,11 +404,12 @@ def run_stats(merged_df):
     group_alpha = group_df[group_df.freq_band =='alpha']
     #TODO make modular for regionwise
     regions =  ['nz_nz_True', 'nz_nz_False', 'nz_soz_True', 'nz_soz_False']
+    #regions = ['nz_soz_True','nz_soz_False']
     stats_df = group_alpha[group_alpha.region_involved.isin(regions)]
     for window in stats_df.win_label.unique():
         logger.info(f"Running {window}")
         win_stats_df = stats_df[stats_df.win_label == window]
-        anova2way_model = ols("value~beta_involved+target", data=win_stats_df).fit()
+        anova2way_model = ols("value~beta_involved+target+beta_involved*target", data=win_stats_df).fit()
         stats_res = sms.stats.anova_lm(anova2way_model, type=2)
         logger.success(f"Computed stats for {window} window. Results:\n{stats_res}")
     return

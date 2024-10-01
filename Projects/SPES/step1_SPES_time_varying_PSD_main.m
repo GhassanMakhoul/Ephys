@@ -446,6 +446,7 @@ for w_iter = 1:length(w_all)
                         fs_pulse = S.fs;
                         if fs_pulse ~= fs; error("Sampling frequencies do not match"); end
                         labels_pulse = string(S.labels)';
+                        %'
                         pulse_data = S.pulse;
                         labels_pulse = replace(labels_pulse," ","");
                         labels_pulse = replace(labels_pulse,"-","");
@@ -490,7 +491,7 @@ for w_iter = 1:length(w_all)
                             % z-scoring)
                             dist_tw_SUB_pxx_AllDists(p,1,k,:,:) = pxx - squeeze(pretrain_PSD_mean(s,:,:));
                                 
-                            % Z-score each pulse's PSD to pre-train
+                            % Z-score each pulse's PSD to pre-train'
                             dist_tw_ZSCORED_pxx_AllDists(p,1,k,:,:) = (pxx - squeeze(pretrain_PSD_mean(s,:,:)))./squeeze(pretrain_PSD_std(s,:,:));
                             
                             % RBP for all distances

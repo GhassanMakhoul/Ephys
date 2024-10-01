@@ -39,6 +39,7 @@ ctx_keys = {'nz_nz_True_outCTX', 'nz_soz_False_outCTX', 'nz_soz_False_ctx', 'nz_
             'soz_nz_True_ctx', 'soz_soz_False_outCTX', 'soz_soz_False_ctx', 'soz_nz_True_outCTX',
             'soz_soz_True_ctx', 'soz_pz_True_outCTX', 'soz_soz_True_outCTX', 'soz_pz_False_outCTX'}
 
+
 #nz_nz_True:"#9400bd"
 #nz_nz_False : "#2000bd"
 
@@ -51,6 +52,15 @@ for key in ctx_keys:
 keys = list(COLOR_MAP.keys())
 for key in keys:
     COLOR_MAP[key.upper()] = COLOR_MAP[key]
+
+COLOR_MAP['SOZ_False'] = "#c28893"
+COLOR_MAP['SOZ_True'] = COLOR_MAP['SOZ']
+
+COLOR_MAP['PZ_False'] = "#dba38a"
+COLOR_MAP['PZ_True'] = COLOR_MAP['PZ']
+
+COLOR_MAP['NIZ_False'] = "#84a2b5"
+COLOR_MAP['NIZ_True'] = COLOR_MAP['NIZ']
 
 BANDS = ['delta', 'theta', 'alpha', 'beta','gamma_l', 'gamma_H']
 #NOTE: the distinctino between gamma low and gamma high is kind of arbitrary
@@ -298,6 +308,8 @@ def z_score_conn(conn_mat:np.ndarray, direction='none', mu=np.array([]), std=np.
     by the amygdala outward connectivity. This may obscure the specific connectivity of the cortical area. The idea is to normalize the 
     contributions per area. 
 
+    
+
     NOTE: Reminder for axes operations
             >>> a = np.array([[1,2],[3,4]])
             >>> print(a)
@@ -309,32 +321,36 @@ def z_score_conn(conn_mat:np.ndarray, direction='none', mu=np.array([]), std=np.
             >>> #axis=1 -> collapse along columns and return the average of a row
             >>> np.mean(a, axis=1)
             [1.5, 
-             3.5]
+             3.5]a
+
+    NOTE: reminder for estimation of standard deviation. Matlab uses a degrees of freedom factor to correct for estimating
+    variance from a sample of larger distribution. Numpy has ddof=0 by default. We set ddof=1 to correct for this difference
             
     Args:
         conn_mat (np.ndarray): symmetric connectivity matrix
         direction (str, optional): determine direction of z_score. options: 'col', 'row', 'none' Defaults to 'None'.
+                                    Use col for generating an average out ward connectivity to score
         mu (np.ndarray, optional): pre_specified mean value to z-score against, often used if comparing to a known baseline, like the interictal period Defaults to None.
         std (np.ndarray, optional): option to pre-specify standard deviation to z-score current connectivity matrix against. Often used when known baseline to compare to such as the intericta
                             period Defaults to None.
     Returns:
         np.ndarray: z_scored connectivity matrix
     """
-    d, _ = conn_mat.shape
+    n_rows, m_cols = conn_mat.shape
     match direction:
         case 'none':
             mu_mat =mu if len(mu) > 0 else np.nanmean(conn_mat)
             std_mat = std if len(std) > 0 else np.nanstd(conn_mat) 
-            (conn_mat -  mu_mat)/ std_mat
+            return (conn_mat -  mu_mat)/ std_mat
         case 'col':
-            col_mean = mu if len(mu) > 0  else np.nanmean(conn_mat, axis=0).reshape(1,d)
-            col_std = std if len(std) > 0  else np.nanstd(conn_mat, axis=0).reshape(1,d)
+            col_mean = mu if len(mu) > 0  else np.nanmean(conn_mat, axis=0).reshape(1,m_cols)
+            col_std = std if len(std) > 0  else np.nanstd(conn_mat, axis=0, ddof=1).reshape(1,m_cols)
             diff = np.subtract(conn_mat, col_mean)
             return np.divide(diff, col_std)
         
         case 'row':
-            row_mean = mu if len(mu) > 0 else  np.nanmean(conn_mat, axis =1).reshape(d,1)
-            row_std =  std if len(std) > 0 else np.nanstd(conn_mat, axis =1).reshape(d,1)
+            row_mean = mu if len(mu) > 0 else  np.nanmean(conn_mat, axis =1).reshape(n_rows,1)
+            row_std =  std if len(std) > 0 else np.nanstd(conn_mat, axis =1,ddof=1).reshape(n_rows,1)
             diff = np.subtract(conn_mat, row_mean)
             return np.divide(diff, row_std)
         

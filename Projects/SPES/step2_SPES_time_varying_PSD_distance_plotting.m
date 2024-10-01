@@ -18,8 +18,8 @@ RANDOMIZE = 0; % 1 is TRUE
 mA_key = '3mA';
 
  % Will dictate which data is pulled out of patient structs
-% data_type = 'PSD Baseline Z-Scored'; 
-% data_type = 'PSD Baseline Mean Subtracted';
+%data_type = 'PSD Baseline Z-Scored'; 
+%data_type = 'PSD Baseline Mean Subtracted';
 data_type = 'RBP Baseline Z-Scored';
 % data_type = 'RBP Baseline Mean Subtracted';
 
@@ -40,9 +40,10 @@ mat_idxs = find(contains({contents.name}, '.mat'));
 if isempty(mat_idxs); error("%d .MATs found in directory (expected > 0)\n%s",length(mat_idxs), source_dir); end
 fprintf("%d MATs found in directory: %s\n",length(mat_idxs), source_dir)
 mat_names = string({contents(mat_idxs).name})';
+%'
 full_mat_paths = fullfile(source_dir,mat_names)';
 
-% Pull out paths for the desired current
+% Pull out paths for the desired current'
 full_mat_paths_USED = full_mat_paths(find(contains(mat_names,mA_key)))';
 
 
@@ -54,13 +55,14 @@ windows = S.pat_spes.time_win_ms;
 switch data_type
     case {'PSD Baseline Z-Scored','PSD Baseline Mean Subtracted'}
         freqs = S.pat_spes.psd_freqs';
+        %'
     case {'RBP Baseline Z-Scored', 'RBP Baseline Mean Subtracted'}
         freqs = 1:size(S.pat_spes.rbp_bands,1);
 end
 dists = S.pat_spes.dist_threshes_mm;
 dist_gap = S.dist_gap;
 
-% Initialize plotting variables'
+% Initialize plotting variables''
 soz_in = nan(length(full_mat_paths_USED),length(dists),size(windows,1),length(freqs));
 soz_out = nan(length(full_mat_paths_USED),length(dists),size(windows,1),length(freqs));
 pz_in = nan(length(full_mat_paths_USED),length(dists),size(windows,1),length(freqs));
@@ -108,6 +110,7 @@ for i = 1:length(full_mat_paths_USED)
     end
     
     for d = 1:length(dists)
+    
         for w = 1:size(windows,1)
             
             % Use outward normalized data for inward metrics
@@ -169,7 +172,7 @@ close all
 edge_types = 'All edge types';
 % edge_types = 'No SOZ-SOZ';
 % edge_types = 'No SOZ-SOZ, no SOZ-PZ/PZ-SOZ';
-
+%band = 4:7;
 band = 1; % band = 8:80; % For PSD this is a range, for RBP this is a single index (e.g. 2 = alpha, refer to 'rbp_bands' in struct)
 tws = 1:1;  % for 150 ms windows 1:9 == 5-355 ms
 ymin = -0.5;
@@ -215,7 +218,9 @@ if dist_gap > 150
     B = pz_in_dist_band;
     C = non_in_dist_band;
     f1 = plot_single_dist(f1, A, B, C, distance_for_bar_plot, title_str, x_label, y_label, ymin, ymax, soz_color, pz_color, non_color, jitterAmount);
-                           
+    fprintf("We saving")
+    saveas(f1, "fig1.png")
+                      
     % OUTWARD
     f2 = figure(2);
     title_str = sprintf("OUTWARD %d-%d Hz, %s\n %s, %d-%d ms, Distance > %d mm\n%s\n%s",...
@@ -224,7 +229,8 @@ if dist_gap > 150
     B = pz_out_dist_band;
     C = non_out_dist_band;
     f2 = plot_single_dist(f2, A, B ,C, distance_for_bar_plot, title_str, x_label, y_label, ymin, ymax, soz_color, pz_color, non_color,jitterAmount);
-    
+    saveas(f2, "fig2.png")
+
     %  If plotting the patients by epilepsy subtype
     if SUBGROUP
         % Get the patient assignments in proper order
@@ -259,7 +265,7 @@ if dist_gap > 150
         B = pz_in_dist_band - pz_out_dist_band;
         C = non_in_dist_band - non_out_dist_band;
         f3 = plot_single_dist(f3, A, B, C, distance_for_bar_plot, title_str, x_label, y_label, -0.4, 0.4, soz_color, pz_color, non_color,jitterAmount);
-        
+        saveas(f3, "fig3.png")
     end
 else
 
@@ -367,7 +373,7 @@ else
     b(1).CData = soz_color; % SOZ
     b(2).CData = pz_color; % PZ
     b(3).CData = non_color; % Non
-    %Dummy objects for legend use
+    %Dummy objects for legend use'
     bh(1) = bar(nan,nan,'FaceColor',soz_color);
     bh(2) = bar(nan,nan,'FaceColor',pz_color);
     bh(3) = bar(nan,nan,'FaceColor',non_color);
@@ -382,6 +388,7 @@ else
     y = [nanmean(soz_bar_data_INmOUT_allDists); nanmean(pz_bar_data_INmOUT_allDists); nanmean(non_bar_data_INmOUT_allDists)];
     err = [soz_data_ci95; pz_data_ci95; non_data_ci95];
     errorbar(x',y',err','LineStyle','none','Color','k','LineWidth',0.5)
+    %'
     title(sprintf("INWARD-OUTWARD %d-%d Hz, %s\n %s, %d-%d ms\n%s\n%s",...
         band(1),band(end), mA_key, data_type, windows(tws(1),1), windows(tws(end),2),intrapat_norm_style,edge_types));
     ylim([-0.5 0.2])
@@ -394,6 +401,7 @@ else
     anova_mat_filled = fillmissing(anova_mat,'previous',1);
     [p,tbl,stats] = anova2(anova_mat_filled,num_pats,'off');
     annotation('textbox', [0.59, 0.4, 0.1, 0.1], 'String', sprintf("Two-way ANOVA\nDistance:    p=%0.2e\nGroup:        p=%0.2e\nInteraction: p=%0.4f",p(1),p(2),p(3)))
-
+    fprintf("saving:")
+    saveas(f,'fig7.png')
 
 end
