@@ -9,26 +9,31 @@ power:
   num_cores: 24
   bands : ['delta', 'beta']
 plt_flow_power:
-  num_cores: 6
+  num_cores: 4
   band: "beta"
-  conn_band : "alpha" #possible bands: 'alpha', 'beta', 'theta', 'gamma_l', 'gamma_H'
-  pipeline: "stats"
-  merged_fname : ../data/merged_flow_pow_subsampFull_anat.csv
-  plot_type : 'joint_kde'
+  conn_band : "all" #possible bands: 'alpha', 'beta', 'theta', 'gamma_l', 'gamma_H'
+  pipeline: "zscore_merge" #plot # 
+  merged_fname : '../data/all_merged_HI10_pow_freq.csv'
+  involvement : 'instantaneous'
+  plot_type : 'lineplot'
   anatomical : False
-  norm_szrs: True
+  norm_szrs: False
+  summarize : True
+  group_cols : ['patID',  'win_sz_st_end','beta_involved', 'region_involved', 'source', 'freq_band' ]
+  numeric_cols: ['value', 'z_pdc', 'z_beta']
+  threshold : 10
   plot_kwargs:
     levels : 5
     alpha : 0.4
     fill : True
-    y : 'value'
-    x : 'z_beta'
+    y : 'z_pdc'
+    x : 'win_sz_centered'
   sz_types : []
   title : 'Directed  Connectivity vs. Delta  Power'
   relationships : [["nz_nz_True", "nz_soz_True", ],
                    ["nz_nz_False", "nz_soz_False"],
                   ]
-  subsample : 5000
+  subsample : 1 #2000
   random_state : 69420
   pre_merged : True
 pipeline: 'power'
