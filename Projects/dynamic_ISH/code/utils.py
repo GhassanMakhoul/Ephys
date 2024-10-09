@@ -43,6 +43,27 @@ ctx_keys = {'nz_nz_True_outCTX', 'nz_soz_False_outCTX', 'nz_soz_False_ctx', 'nz_
 #nz_nz_True:"#9400bd"
 #nz_nz_False : "#2000bd"
 
+
+def map_p(p_value) -> 'str':
+    """Returns a p_value text mapping to convey level of significant 
+                - "#" for  p < .0005
+                - "+" for p < .005
+                - "*" for p < .05
+    Args:
+        p_value (_type_): _description_
+
+    Returns:
+        str: _description_
+    """
+    if p_value < .0005:
+        return "#"
+    if p_value < .005:
+        return "+"
+    if p_value <= .05:
+        return "*"
+    return "NS"
+    
+
 for key in ctx_keys:
     og_key = "_".join(key.split("_")[0:3])
     hex_color = FLOWMAP[og_key]
