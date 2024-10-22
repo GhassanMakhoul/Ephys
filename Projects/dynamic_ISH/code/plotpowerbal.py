@@ -10,6 +10,7 @@ import yaml
 logging.getLogger('mat73').setLevel(logging.CRITICAL)
 from multiprocessing import Pool
 from functools import partial
+import tracemalloc
 
 import warnings
 
@@ -20,6 +21,8 @@ from scipy.stats import f_oneway
 from sklearn import linear_model
 from statsmodels.formula.api import ols
 import statsmodels.api as sms
+
+
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -60,7 +63,7 @@ def stim_to_df(stim_struct):
     return stim_df
 
 def get_currently_involved_inds(event_df, band='beta', threshold=2, **kwargs):
-    """Given an evetn_df which contains the dynamics of all bipoles for one seizure event,
+    """Given an event_df which contains the dynamics of all bipoles for one seizure event,
     assigns each region as being seizure involved if its instantaneous BAND activity is greater
     than threshold, divides nodes as "band_involved" or "band_involved". Furthermore, if a region 
     transitions above and below threshold, can optionally enforece a third group designation: "transition_involved", 
@@ -76,7 +79,9 @@ def get_currently_involved_inds(event_df, band='beta', threshold=2, **kwargs):
         if prior_activity:
             return "prev_involved"
         return "uninvolved"
-    logger.info(f"Runing threshold {threshold} for on {band} ")
+    subj = event_df.patID.values[0]
+    event = event_df.eventID.values[0]
+    logger.info(f"Running threshold {threshold} on {band} band on {subj}  eventID {event}")
     ictal_df = event_df[event_df.win_label.isin(['early_ictal','ictal','late_ictal'])]
     ictal_bip_df = ictal_df[['bip', f'z_{band}','win_sz_st_end']]
     # get channels that on average achieve a z_score above  threshold power
@@ -115,7 +120,12 @@ def get_involved_inds(event_df, band="beta", threshold=2):
     # get channels that on average achieve a z_score above  threshold power
     thresh_bool = ictal_bip_df[f'z_{band}'].values > threshold
     power_dict = dict(zip(ictal_bip_df.bip, thresh_bool))
-    all_bip_thresh = event_df.bip.apply(lambda x: power_dict[x])
+    try:
+        all_bip_thresh = event_df.bip.apply(lambda x: power_dict[x])
+    except KeyError:
+        logger.warning(f"Event_df for {event_df.patID.values[0]} has misalignment in bipole labels \
+                       across periods in {event_df.eventID.values[0]}")
+        return pd.DataFrame()
     event_df.insert(loc=len(event_df.columns), column=f"{band}_involved", value=all_bip_thresh)
     return event_df
 
@@ -131,9 +141,9 @@ def get_involved_dict(event_df, band="beta", threshold=2):
     return power_dict
 
 def score_power(subjects,num_cores=6, **kwargs):
-    if len(subjects) <2 :
+    if len(subjects) <2 or num_cores ==1:
         #for debugging purposes
-        score_power_subject(subjects[0], **kwargs) 
+        [score_power_subject(subj, **kwargs) for subj in subjects]
     elif len(subjects) >1:
         num_cores = min(len(subjects), num_cores)
         p = Pool(num_cores)
@@ -160,6 +170,11 @@ def score_power_subject(subject,power_dir="/mnt/ernie_main/Ghassan/ephys/data/ei
         else:
             pow_event_df = get_involved_inds(pow_event_df, band=band)
         scored_dfs.append(pow_event_df)
+    scored_dfs = pd.concat(scored_dfs)
+    if scored_dfs.shape[0] == 0:
+        logger.warning(f"Subject: {subject} has no data in scored aligned power df!" )
+    scored_dfs.to_csv(os.path.join(power_dir, f"scored_power_bal_{subject}_centered.csv"))
+    logger.success(f"Scored and saved {subject} power to {power_dir} as scored_power_bal_{subject}_centered.csv")
     
     
 
@@ -183,11 +198,16 @@ def merge_flow_power(flow_df: pd.DataFrame, power_df: pd.DataFrame,involvement='
         flow_event_df = flow_df[flow_df.eventID == event]
         assert "win_sz_st_end" in flow_event_df.columns, "Need to center flow first!"
         assert "win_sz_st_end" in pow_event_df.columns, "Need to center flow first!"
+        logger.info(f"About to merge {subj}")
+        pdb.set_trace()
+        from functools import reduce
+        ldf = [pow_event_df[['bip',f'z_{band}','win_sz_st_end', f'{band}_involved',"z_delta","anat_region"]], flow_event_df]
         #NOTE: added ever_involved recently!
-        df = pow_event_df[['bip',f'z_{band}','win_sz_st_end', f'{band}_involved', 'ever_involved',"z_delta","anat_region"]].merge(\
-            flow_event_df,how='right',
-            right_on=['win_sz_st_end','src_bip'],
-            left_on=['win_sz_st_end','bip'])
+        # df = pow_event_df[['bip',f'z_{band}','win_sz_st_end', f'{band}_involved',"z_delta","anat_region"]].merge(\
+        #     flow_event_df,how='right',
+        #     right_on=['win_sz_st_end','src_bip'],
+        #     left_on=['win_sz_st_end','bip'])
+        df = reduce(lambda x,y : pd.merge(x,y, how='right', right_on=['win_sz_st_end','src_bip'], left_on=['win_sz_st_end','bip']), ldf)
         df['region_involved'] = df.apply( \
             lambda x: f"{x['source']}_{x['target']}_{x[f'{band}_involved']}",\
             axis=1)
@@ -205,6 +225,7 @@ def merge_flow_power(flow_df: pd.DataFrame, power_df: pd.DataFrame,involvement='
 def summarize_df(df:pd.DataFrame, group_cols:list[str], numeric_cols:list[str]):
     subj = df.patID.values[0]
     logger.info(f"Summarizing {subj} df along columns, starting shape: {df.shape}")
+    
     df = df[group_cols+numeric_cols]  
     df = df.groupby(group_cols).mean().reset_index()
     logger.info(f"Successful merge, final shape: {df.shape}")
@@ -243,15 +264,143 @@ def load_dfs(flow_fname, power_fname, ignore_uknown=True):
     flow_df = pd.read_csv(flow_fname)
     flow_df['eventID'] = flow_df.eventID.apply(str)
     if ignore_uknown:
-        flow_df = flow_df[flow_df.sz_type.isin(['FIAS','FBTC','FAS'])]
-        power_df = power_df[power_df.sz_type.isin(['FIAS','FBTC','FAS'])]
+        sz_filt  = set(['FIAS','FBTC','FAS'])
+        if len(sz_filt.difference(flow_df.sz_type.unique())) == 3:
+            subj = flow_df.patID.values[0]
+            logger.warning(f"Only unknown seizure types in {subj}")
+        flow_df = flow_df[flow_df.sz_type.isin(sz_filt)]
+        power_df = power_df[power_df.sz_type.isin(sz_filt)]
+
 
 
     assert len(set(flow_df.eventID)) == len(set(power_df.eventID)), "need same number of events!"
     return flow_df, power_df
 
+def calc_power_corr(merged_df, **kwargs):
+    """Calculate correlation between beta power and connectivity
+
+    Args:
+        merged_df (_type_): _description_
+        pltname (_type_): _description_
+        x (str, optional): _description_. Defaults to 'win_sz_st_end'.
+        hue (str, optional): _description_. Defaults to 'ever_involved'.
+        plot_stats (bool, optional): _description_. Defaults to True.
+
+    Returns:
+        _type_: _description_
+    """
+    #NOTE: Hard coded transforms, consider making more modular
+    merged_df = merged_df[merged_df.source == 'nz']
+    merged_df = merged_df[merged_df.target == 'soz']
+    merged_df = merged_df[merged_df.freq_band =='alpha']
+
+    corr_dict = defaultdict(lambda: [])
+    for win, df in merged_df.groupby('win_sz_st_end'):
+        susceptible_df = df #df[df.ever_involved ==True]
+        #adaptable_df = df[df.ever_involved ==False]
+        # change for different pdc values
+
+        x_suscept, y_suscept = susceptible_df.z_beta, susceptible_df.z_pdc
+        #x_suscept, y_suscept = susceptible_df.z_beta, susceptible_df.value
+        #pdb.set_trace()
+        x_suscept = sms.add_constant(x_suscept)
+#        x_adapt, y_adapt = adaptable_df.z_beta, adaptable_df.z_pdc
+        #x_adapt = sms.add_constant(x_adapt)
+
+        #adapt_ols = sms.OLS(y_adapt,x_adapt).fit()
+        #corr_dict['slope'].append(adapt_ols.params['z_beta'])
+        #corr_dict['p_val'].append(adapt_ols.pvalues['z_beta'])
+        #corr_dict['node_type'].append('adaptable')
+        #corr_dict['win_sz_st_end'].append(win)
 
 
+        suscept_ols = sms.OLS(y_suscept,x_suscept).fit()
+        corr_dict['slope'].append(suscept_ols.params['z_beta'])
+        corr_dict['p_val'].append(suscept_ols.pvalues['z_beta'])
+        corr_dict['node_type'].append('susceptable')
+        corr_dict['win_sz_st_end'].append(win)
+    return pd.DataFrame.from_dict(corr_dict)
+
+def plot_anat_involved(merged_df, pltname, regions=['NIZ','SOZ','PZ']**kwargs):
+    """given a dataframe of scored values for bipoles
+    creates a heatmap of anatomical regions implicated in beta_involvement
+    or could be applied to any stratification of the data"""
+    return 
+
+def plot_conn_corr(merged_df, pltname, x='win_sz_st_end', y='slope', hue='node_type', plot_stats=True, plot_sig = True, **kwargs):
+    merged_df.z_beta = merged_df.z_beta.apply(np.abs)
+    corr_df = calc_power_corr(merged_df, **kwargs)
+    ymin=-.15
+    ymax=.1
+
+    if plot_stats:
+        sig_inds = dict()
+        for win in range(-30,60):
+            win_df = corr_df[corr_df.win_sz_st_end == win]
+            p = win_df.p_val.values[0]
+            if p <.05:
+                logger.info(f"Sig at {win} with p={p}")
+                sig_inds[win] = (p, map_p(p))
+        logger.info(f"Number of sig time points: {len(sig_inds)}")
+    corr_df = corr_df[corr_df.win_sz_st_end <80]
+    corr_df = corr_df[corr_df.win_sz_st_end >-60]
+    sns.set_theme(style='white', rc={'figure.figsize':(6,3.5)})
+
+    if hue =='':
+        ax = sns.lineplot(data=corr_df, x=x, y=y)
+    else:
+        ax = sns.lineplot(data=corr_df, x=x, y=y,hue=hue,style=hue)
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    #for ax in grid.axes.flat:
+    ax.vlines(x=[0, 30], ymin=ymin, ymax=.15, ls='--', lw=2, label='seizure start - end')
+    if plot_stats:
+        ax.text(50, .05,'* < .05\n+ < .005\n# < .0005', fontsize=9)
+        for ind,(p,sig) in sig_inds.items():
+                #TODO insert plot sig here, any significant period
+                # add time stamp and add line + stats?
+                ax.text(x=ind, y=.09, s=sig)
+    
+    plt.ylim(ymin,ymax)
+    plt.xlim(-1,60)
+
+    plt.ylabel("Correlation Coefficient")
+    plt.xlabel("Time (s)")
+    plt.title("Correlation between beta power and NIZ to SOZ connectivity")
+    plt.savefig(f"../viz/{pltname}.pdf", transparent=True, bbox_inches="tight")
+    plt.close()
+
+    if plot_stats:
+        plot_scatter(merged_df, sig_inds, pltname, **kwargs)
+    return
+
+def plot_scatter(merged_df, sig_inds, pltname, **kwargs):
+    """plots z_beta vs time stamp
+    #TODO maybe make more modular? 
+    # currently assumes that the scatter uses a merged df may be too spec""
+    """
+    merged_df = merged_df[merged_df.source == 'nz']
+    merged_df = merged_df[merged_df.target == 'soz']
+    merged_df = merged_df[merged_df.freq_band =='alpha']
+
+    pltname = pltname.strip(".pdf")
+    sig_wins = sig_inds.keys()
+    sig_df = merged_df[merged_df.win_sz_st_end.isin(sig_wins)]
+    sns.set_theme(style='white', rc={'figure.figsize':(6,3.5)})
+    for win, df in sig_df.groupby('win_sz_st_end'):
+        pval,_ = sig_inds[win]
+        title = f"NIZ-SOZ Flow vs. Ictal BetaPower at t={win}, p={pval}" 
+        ax = sns.regplot(df, x='z_beta', y='z_pdc')
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        # _ = sns.lineplot(df, x='z_beta', y='z_pdc', ax=ax)
+        plt.title(title)
+        fname = os.path.join(f"../viz/{pltname}_{win}_scatter.pdf")
+        logger.info(f"Plotted Scatter for t={win} and saved in: {pltname}")
+        plt.savefig(fname)
+        plt.close()
+
+    return 
 #TODO separate out connection types into certain plots
 # 1. first plot Nz_soz_true, nz_soz_false, nz_nz_true
 # 2. Z-score PDC against interictal period
@@ -267,8 +416,8 @@ def line_plot(merged_df, pltname, x='win_sz_st_end',y='z_pdc', hue='', plot_stat
     merged_df = merged_df[merged_df.target == 'soz']
     merged_df = merged_df[merged_df.region_involved.isin(['nz_soz_uninvolved', 'nz_soz_involved'])]#, 'nz_soz_prev_involved'])]
     merged_df = merged_df[merged_df.freq_band =='alpha']
-    merged_df = merged_df[merged_df.win_sz_st_end <60]
-    merged_df = merged_df[merged_df.win_sz_st_end >-30]
+    merged_df = merged_df[merged_df.win_sz_st_end <80]
+    merged_df = merged_df[merged_df.win_sz_st_end >-60]
     # qdict = {'uninvolved':"uninvolved", "involved":"involved","prev_involved":"involved"}
     # merged_df.beta_involved = merged_df.beta_involved.apply(lambda x: qdict[x])
     if plot_stats:
@@ -290,10 +439,10 @@ def line_plot(merged_df, pltname, x='win_sz_st_end',y='z_pdc', hue='', plot_stat
     # merged_df['region_involved'] = merged_df.region_involved.apply(lambda x: "_".join(x.split("_")[0:2]))
     #sns.lineplot(merged_df, x=x, y=y)
 
-    if hue =='':
+    if hue !='':
+        sns.lineplot(data=merged_df, x=x, y=y,hue=hue,style=hue)
+    else: 
         ax = sns.lineplot(data=merged_df, x=x, y=y)
-    else:
-        ax = sns.lineplot(data=merged_df, x=x, y=y,hue=hue,style=hue)
     #for ax in grid.axes.flat:
     ax.vlines(x=[0, 30], ymin=-10, ymax=10, ls='--', lw=2, label='seizure start - end')
     if plot_stats:
@@ -304,6 +453,7 @@ def line_plot(merged_df, pltname, x='win_sz_st_end',y='z_pdc', hue='', plot_stat
     plt.xlabel("Time (s)")
     plt.title("Peri-Ictal Beta Power within the NIZ")
     plt.savefig(f"../viz/{pltname}.pdf", transparent=True, bbox_inches="tight")
+    logger.success("line plot done!")
 
 def joint_kde_flow_power_plotter(flow_power_df, pltname, relationships='all', sz_types=[] ,anatomical =False, **kwargs):
     #NOTE holy shit recursion is useful sometimes
@@ -396,7 +546,7 @@ def scatter_flow_power(flow_power_df, pltname, y='value', x='z_beta', **kwargs):
             plt.savefig(f"../viz/{pltname}.pdf", transparent=True, bbox_inches="tight")
 
 
-def load_merge_subject(subject, power_dir="/mnt/ernie_main/Ghassan/ephys/data/ei_bal/", flow_dir="/mnt/ernie_main/Price/ephys/data/periconnectivity", **kwargs):
+def load_merge_subject(subject, merged_fname="merged_df", power_dir="/mnt/ernie_main/Ghassan/ephys/data/ei_bal/", flow_dir="/mnt/ernie_main/Price/ephys/data/periconnectivity", **kwargs):
     """Given a subject, coordinates dataframe loading
     and merging, then generates plots for power vs connectivity
 
@@ -415,8 +565,13 @@ def load_merge_subject(subject, power_dir="/mnt/ernie_main/Ghassan/ephys/data/ei
         return pd.DataFrame()
     #maybe assert that there is a file in each glob before indexing?
     flow_df, power_df = load_dfs(flow_fname, pow_fname)
-    
-    return merge_flow_power(flow_df, power_df, **kwargs)
+       
+    flow_pow_df = merge_flow_power(flow_df, power_df, **kwargs)
+    logger.info(f"Merged ALL {subject}")
+    flow_pow_df.to_csv(f"../data/{subject}_{merged_fname}.csv", index=False)
+    logger.success(f"Saved {subject} csv in ../data/{subject}_{merged_fname}.csv")
+    logger.success(f"Merged Flow and Power for {subject}")
+
 
 #NOTE: I hate that I have to do this, should have z_scored verbose calculations
 # at the initial compilation but for now, I'll post-hoc z-score
@@ -442,7 +597,7 @@ def  load_score_merge_subject(subject, power_dir="/mnt/ernie_main/Ghassan/ephys/
         flow_pow_df= merge_flow_power(z_flow_df, power_df, **kwargs)
         merged_fname = merged_fname.strip(".csv")
         flow_pow_df.to_csv(f"../data/{subject}_{merged_fname}.csv", index=False)
-        logger.success(f"Saved {subject} csv in ../data/{subject}_{merged_fname}.csv")
+        logger.success(f"Saved {subject}'s zscored flow-pow csv in ../data/{subject}_{merged_fname}.csv")
         logger.success(f"Merged Flow and Power for {subject}")
     except ValueError:
         logger.warning(f"Subject{subject} had no events to z_score. \n\t\t\tShape of flow{flow_df.shape} shape of power {power_df.shape}")
@@ -499,6 +654,10 @@ def center_seizure_onset(subjects, power_dir="/mnt/ernie_main/Ghassan/ephys/data
             pre_centered +=1
             continue
         flow_df, power_df = load_dfs(flow_fname, pow_fname)
+        if flow_df.shape[0] == 0:
+            logger.warning(f"Subj: {subject} has been excluded from center onset, likely due filtering out unknown seizures. Double check.")
+            continue
+        logger.info(f"Centering {subject}")
         for event in set(power_df.eventID.values):
             pow_event_df = power_df[power_df.eventID == event]
             flow_event_df =flow_df[flow_df.eventID == event]
@@ -518,6 +677,7 @@ def center_seizure_onset(subjects, power_dir="/mnt/ernie_main/Ghassan/ephys/data
 def verify_subjlist(subjlist, flow_dir, pow_dir):
     """returns a list of subjects that has both verbose flow and verbose power csvs"""
     verify_list = []
+    
     for sub in subjlist:
         flow_f = os.path.join(flow_dir, f"peri_ictal_flow_verbose_{sub}.csv")
         pow_f = os.path.join(pow_dir,  f"power_bal_{sub}.csv")
@@ -529,13 +689,13 @@ def verify_subjlist(subjlist, flow_dir, pow_dir):
     return verify_list
 
 
-def load_merge_all(subjects, num_cores=20, merged_fname="merged_df", out_dir="../data", **kwargs):
+def load_merge_all(subjects, num_cores=20, out_dir="../data", **kwargs):
     #may need to have spec test for certain centering 
     # if len(glob.glob(os.path.join(kwargs['power_dir'], "*_centered.csv"))) < len(subjects):
     #     logger.info("Centering Seizure events first!")
     #     center_seizure_onset(subjects, **kwargs)
     logger.info(f"Loading subjects {len(subjects)}")
-    if len(subjects) <2 :
+    if len(subjects) <2 or num_cores <2:
         #for debugging purposes
         merged_dfs =[ load_merge_subject(subj, **kwargs) for subj in subjects]
     elif len(subjects) >1:
@@ -545,11 +705,11 @@ def load_merge_all(subjects, num_cores=20, merged_fname="merged_df", out_dir="..
         p.close()
         p.join()
         merged_dfs = [m_df for m_df in merged_dfs if not m_df.empty]
-    merged_dfs = pd.concat(merged_dfs)
+    # merged_dfs = pd.concat(merged_dfs)
     logger.success(f"Merged and loaded {len(subjects)}")
-    merged_fname = os.path.join(out_dir, merged_fname)
-    merged_dfs.to_csv(merged_fname)
-    logger.info(f"Saved merged df to {merged_fname}")
+    # merged_fname = os.path.join(out_dir, merged_fname)
+    # merged_dfs.to_csv(merged_fname)
+    # logger.info(f"Saved merged df to {merged_fname}")
 
 def run_stats(merged_df):
     """
@@ -627,11 +787,18 @@ def plot_subjects(merged_df, pltname='flow_pow.pdf', band='beta', plot_type='kde
         case "joint_kde":
             joint_kde_flow_power_plotter(plot_df, pltname, **kwargs)
         case 'lineplot':
+            line_plot(merged_df, pltname, **kwargs)   
+        case 'line':
             line_plot(merged_df, pltname, **kwargs)
+        case 'corr':
+            plot_conn_corr(merged_df, pltname, **kwargs)
+        case "anat_involved":
+            plot_anat_involved(merged_df, pltname, **kwargs)
 
     logger.success(f"plotting successful! Saved plots to {pltname}")
 
 def main(argv):
+    tracemalloc.start()
     logger.info(argv)
     kwargs = {}
     opts, _ = getopt.getopt(argv,"s:f:p:t:c:l:",["subjlist=","flowdir=",'powdir=',"plotname=",'config=','logdir='])
@@ -668,6 +835,9 @@ def main(argv):
             center_seizure_onset(subjlist_verified, **kwargs)
             merged_dfs = load_merge_all(subjlist_verified, **kwargs)
             plot_subjects(merged_dfs, **kwargs)
+        case "full":
+            center_seizure_onset(subjlist_verified, **kwargs)
+            merged_dfs = load_merge_all(subjlist_verified, **kwargs)
         case "merge_plot":
             merged_dfs = load_merge_all(subjlist_verified, **kwargs)
             plot_subjects(merged_dfs, **kwargs)

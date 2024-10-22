@@ -1,7 +1,7 @@
 #!bin bash
 
 POWDIR="/mnt/ernie_main/Ghassan/ephys/data/ei_bal/"
-FLOWDIR="/mnt/ernie_main/Price/ephys/data/periconnectivity"
+FLOWDIR="/mnt/ernie_main/Ghassan/ephys/data/z_flow"
 LOG_DIR="~/Documents/Research/Ephys/Code/dynamic_ISH/logs/"
 CONFIG_FILE="config_connectivity.yml"
 SUBJLIST=subjlist.csv

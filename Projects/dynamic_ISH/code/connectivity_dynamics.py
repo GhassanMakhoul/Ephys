@@ -216,9 +216,9 @@ def assemble_net_conn_verbose(pdc_dict, soz_inds, pz_inds, nz_inds, chan_names, 
         for b in range(len(bands)):
             #TODO add z_score to interictal period and LOCK the reference!
             mu_in, std_in = ref_stat['mu_in'], ref_stat['std_in']
-            z_pdc_in = z_score_conn(pdc[b, :,:],mu=mu_in[b,:],std=std_in[b,:],direction='col')
+            z_pdc_out = z_score_conn(pdc[b, :,:],mu=mu_in[b,:],std=std_in[b,:],direction='outward')
             mu_out, std_out = ref_stat['mu_out'], ref_stat['std_out']
-            z_pdc_out = z_score_conn(pdc[b,:,:], mu=mu_out[:,b], std=std_out[:,b], direction='row')
+            z_pdc_in = z_score_conn(pdc[b,:,:], mu=mu_out[:,b], std=std_out[:,b], direction='inward')
 
             band = bands[b]
             
@@ -264,7 +264,7 @@ def assemble_net_conn(pdc_dict, soz_inds, pz_inds, nz_inds, bands=BANDS, ref_sta
         _type_: Dataframe of next connectivity for each region.
     """
     cols = ['period', 'region', 'net_pdc', 'in_pdc', 'out_pdc', 'freq_band', 'window_designations']
-    
+
     net_dict = {}
 
     for period, pdc in pdc_dict.items():
@@ -272,9 +272,9 @@ def assemble_net_conn(pdc_dict, soz_inds, pz_inds, nz_inds, bands=BANDS, ref_sta
         for b in range(len(bands)):
             #TODO add z_score to interictal period and LOCK the reference!
             mu_in, std_in = ref_stat['mu_in'], ref_stat['std_in']
-            z_pdc_in = z_score_conn(pdc[b, :,:],mu=mu_in[b,:],std=std_in[b,:],direction='col')
+            z_pdc_out = z_score_conn(pdc[b, :,:],mu=mu_in[b,:],std=std_in[b,:],direction='outward')
             mu_out, std_out = ref_stat['mu_out'], ref_stat['std_out']
-            z_pdc_out = z_score_conn(pdc[b,:,:], mu=mu_out[:,b], std=std_out[:,b], direction='row')
+            z_pdc_in = z_score_conn(pdc[b,:,:], mu=mu_out[:,b], std=std_out[:,b], direction='inward')
 
             band = bands[b]
             
@@ -371,26 +371,26 @@ def score_period(conn_mats, window_dict, agg_win="interictal", buffer=60, win_si
         for b in range(len(bands)):
             if stats == 'mu' or stats == 'full':
                 mu_in = np.array([np.nanmean(conn_mats[i,b,:,:],axis=0) for i in range(num_win)])
-                mu_in = np.mean(mu_in, axis=0)
+                mu_in = np.nanmean(mu_in, axis=0)
                 stat_dict['mu_in'][b,:] = mu_in
                 
                 mu_out = np.array([np.nanmean(conn_mats[i,b,:,:],axis=1) for i in range(num_win)])
-                mu_out = np.mean(mu_out, axis=0)
+                mu_out = np.nanmean(mu_out, axis=0)
                 stat_dict['mu_out'][:,b] = mu_out
             if stats == 'std' or stats == 'full':
-                sigma_in = np.array([np.nanstd(conn_mats[i,b,:,:],axis=0) for i in range(num_win)])
-                sigma_in = np.mean(sigma_in, axis=0)
+                sigma_in = np.array([np.nanstd(conn_mats[i,b,:,:],ddof=1,axis=0) for i in range(num_win)])
+                sigma_in = np.nanmean(sigma_in, axis=0)
                 stat_dict['std_in'][b,:] = sigma_in
 
-                sigma_out = np.array([np.nanstd(conn_mats[i,b,:,:],axis=1) for i in range(num_win)])
-                sigma_out = np.mean(sigma_out, axis=0)
+                sigma_out = np.array([np.nanstd(conn_mats[i,b,:,:],ddof=1,axis=1) for i in range(num_win)])
+                sigma_out = np.nanmean(sigma_out, axis=0)
                 stat_dict['std_out'][:,b] = sigma_out 
 
         #Additional code in to allow for preserving original pdc values. For example, not removing the mean but just 
         # compressing the range based on the standard deviations, use stats = 'std'       
         return stat_dict
 
-def filter_periods(conn_mats, window_dict, agg_win, buffer, win_size):
+def filter_periods(conn_mats, window_dict, agg_win, buffer, win_size, stride=1):
     """
     filters through the window designations and returns only connectivity matrices
     that belong to the specified AGG_WIN and are outside of the buffer period
@@ -402,7 +402,7 @@ def filter_periods(conn_mats, window_dict, agg_win, buffer, win_size):
     designations = list(window_dict.values())
     if agg_win == 'interictal':
         transition_win = find_transition(designations, ['0.0_0.0_1.0', '0.0_1.0_1.0'])
-        num_buffer_win = buffer // win_size
+        num_buffer_win = buffer // stride -win_size
         if transition_win ==  -1:
             logger.warning(f"Error Finding transition from interictal to ictal state, set of all window designations: {set(designations)}")
             return conn_mats
@@ -707,7 +707,7 @@ def gen_flow_dfs(pathout, inp_paths, num_cores =1, **kwargs)->None:
     subj_dfs.to_csv(os.path.join(pathout, fname), index=False)
     logger.success(f'Saving {subj} 3-node view of {len(inp_paths)} seizures to {pathout} as {fname}')
 
-def map_subject_to_flow(pat_file, filt_dist=0, **kwargs):
+def map_subject_to_flow(pat_file, filt_dist=0, zscore=False,**kwargs):
     """_summary_
 
     Args:
@@ -722,6 +722,15 @@ def map_subject_to_flow(pat_file, filt_dist=0, **kwargs):
     subj_id = read_conn_struct(pat_obj, 'pdc', 'patID')
     # NOTE: need to add functionality for retaining all channels
     pdc_dict, label_inds , chan_names = prep_conn(pat_obj, wintype='full',filt_dist=filt_dist, **kwargs)
+    #TODO insert z-scoring here!
+    if zscore:
+        window_dict = prep_window_dict(pat_obj)
+        win_size = kwargs['win_size'] if "win_size" in kwargs.keys() else 5
+        # pdb.set_trace()
+        ref_stats= score_period(list(pdc_dict.values()), window_dict, agg_win="interictal", win_size=win_size, **kwargs)
+        conn_mats = np.array([conn for conn in pdc_dict.values()])
+        z_pdc = z_score_mats(conn_mats, direction='outward', ref_stats=ref_stats )
+        pdc_dict = dict(zip(pdc_dict.keys(), z_pdc))
     window_dict = prep_window_dict(pat_obj)
     if label_inds['pz'].shape[0] == 0:
         print(f"Subj {subj_id} has no PZ designation for the following struct {pat_file}")
@@ -741,6 +750,30 @@ def map_subject_to_flow(pat_file, filt_dist=0, **kwargs):
     flow_df['sz_type'] = read_conn_struct(pat_obj, 'pdc', 'sz_type')
     return flow_df
     
+def z_score_mats(conn_mats, direction="none", ref_stats=defaultdict(lambda:None), **kwargs):
+    """Given summary statistics of a set of connectivity matrices, returns the 
+    directional z_score of all matrices.
+
+    Remember to z-score outward connectivity we first normalize against the statistics derived from inward connectivity. 
+
+    Args:
+        conn_mats (np.ndarray): t_wins x b_bands x n_channels (rows) x n_channels (cols) connectivity matrices, unscored
+        ref_stats (dictionary, optional): reference statistics to score against, can be useful if z-scoring against a certain set of windows. Otherwise, z_scores will be generated at a per-window basis. This would then assess the spread of connections relative to each other at a single time point, but won't inform you if the whole system has shifted for example. Defaults to defaultdict(lambda:None).
+    """
+    # pdb.set_trace()
+    match direction:
+        case 'inward':
+            return
+        case 'outward':
+            mu_in, std_in = ref_stats['mu_in'], ref_stats['std_in']
+            b, n_ch = mu_in.shape
+            centered_conn = conn_mats - mu_in.reshape(1, b,1,n_ch)
+            z_out = np.divide(centered_conn, std_in.reshape(1,b,1,n_ch))
+            return z_out
+        case "none":
+            return
+    return
+
 
 def load_structs(file_list, cores=12, **kwargs)->list[dict]:
     
@@ -1049,7 +1082,7 @@ def main(argv):
 
     kwargs = config['peri_para']
     print(kwargs)
-    pipeline = "net" if 'pipeline' not in config.keys() else config['pipeline']
+    pipeline = "net" if 'pipeline' not in kwargs.keys() else kwargs['pipeline']
 
     paths = glob.glob(os.path.join(datadir, "*PDC.mat"))
     match pipeline:

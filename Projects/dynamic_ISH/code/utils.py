@@ -24,8 +24,11 @@ DTYPE = h5py.special_dtype(vlen=str)
 COLOR_MAP= {'pz':'#D95319', 'soz': "#A2142F", "nz":"#0072BD", "niz":"#0072BD", 
             'pz_soz': '#D95319', 'soz_soz': "#A2142F", "nz_soz":"#0072BD"}
 COLOR_MAP['niz_soz'] = COLOR_MAP['soz']
+COLOR_MAP['nz_soz'] = COLOR_MAP['soz']
 COLOR_MAP['niz_pz'] = COLOR_MAP['pz']
+COLOR_MAP['nz_pz'] = COLOR_MAP['pz']
 COLOR_MAP['niz_niz'] = COLOR_MAP['nz']
+COLOR_MAP['nz_nz'] = COLOR_MAP['nz']
 FLOWMAP  = {'nz_soz_False':"#00bdaa", 'pz_soz_False':"#bdb400", 'pz_nz_True':"#00bd58", 
             'nz_pz_False':"#9700bd", 'pz_nz_False':"#00bd2c", 'nz_nz_True':"#9400bd", 'soz_pz_False':"#bd6e00",
             'pz_pz_False':"#d98919", 'pz_soz_True': "#bdb000", 'soz_soz_False':"#bd0078", 'soz_nz_True':"#bd6e00",
@@ -363,17 +366,17 @@ def z_score_conn(conn_mat:np.ndarray, direction='none', mu=np.array([]), std=np.
             mu_mat =mu if len(mu) > 0 else np.nanmean(conn_mat)
             std_mat = std if len(std) > 0 else np.nanstd(conn_mat) 
             return (conn_mat -  mu_mat)/ std_mat
-        case 'col':
-            col_mean = mu if len(mu) > 0  else np.nanmean(conn_mat, axis=0).reshape(1,m_cols)
-            col_std = std if len(std) > 0  else np.nanstd(conn_mat, axis=0, ddof=1).reshape(1,m_cols)
-            diff = np.subtract(conn_mat, col_mean)
-            return np.divide(diff, col_std)
+        case 'outward': #columnwise
+            inward_mean = mu if len(mu) > 0  else np.nanmean(conn_mat, axis=0).reshape(1,m_cols)
+            inward_std = std if len(std) > 0  else np.nanstd(conn_mat, axis=0, ddof=1).reshape(1,m_cols)
+            diff = np.subtract(conn_mat, inward_mean)
+            return np.divide(diff, inward_std)
         
-        case 'row':
-            row_mean = mu if len(mu) > 0 else  np.nanmean(conn_mat, axis =1).reshape(n_rows,1)
-            row_std =  std if len(std) > 0 else np.nanstd(conn_mat, axis =1,ddof=1).reshape(n_rows,1)
-            diff = np.subtract(conn_mat, row_mean)
-            return np.divide(diff, row_std)
+        case 'inward': #row-wise
+            outward_mean = mu if len(mu) > 0 else  np.nanmean(conn_mat, axis =1).reshape(n_rows,1)
+            outward_std =  std if len(std) > 0 else np.nanstd(conn_mat, axis =1,ddof=1).reshape(n_rows,1)
+            diff = np.subtract(conn_mat, outward_mean)
+            return np.divide(diff, outward_std)
         
 def chunker(seq, size):
     return (seq[pos:pos + size] for pos in range(0, len(seq), size))

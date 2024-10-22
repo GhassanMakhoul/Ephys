@@ -1,6 +1,6 @@
 #!bin bash
 INP_DIR='/mnt/ernie_main/Ghassan/ephys/data/connectivity/'
-OUT_DIR="/mnt/ernie_main/Ghassan/ephys/data/periconnectivity/"
+OUT_DIR="/mnt/ernie_main/Ghassan/ephys/data/z_flow/"
 LOG_DIR="../logs/"
 CONFIG_FILE="config_connectivity.yml"
 SUBJ="all"
