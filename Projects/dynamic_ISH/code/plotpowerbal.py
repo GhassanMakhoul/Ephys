@@ -32,7 +32,7 @@ matplotlib.rcParams['pdf.fonttype'] = 42
 matplotlib.rcParams['ps.fonttype'] = 42
 
 from utils import *
-from connectivity_dynamics import center_onset
+from connectivity_dynamics import center_onset, label_timestamp
 
 def stim_to_df(stim_struct):
     """Returns a flattened dataframe with
@@ -151,6 +151,34 @@ def score_power(subjects,num_cores=6, **kwargs):
         p.close()
         p.join()
  
+def group_scored_power(subjects, merged_name='score_merged_anat.csv', glob_str='/mnt/ernie_main/Ghassan/ephys/data/ei_bal/*scored_power_bal_*_centered.csv', score_col= 'beta_involved', **kwargs):
+    """Saves a merged datarame including all anatomical locations
+    bipoles at the event level for all patients,
+    given a list of SUBJECTS with scored and centered dataframes.
+    Checks that dfs are centered by looking for 'win_sz_st_end' and that
+    they have been socres according to the 'SCORE_COL'
+    """
+    #TODO consider removing subjects as string
+    #load and verify that df is correct
+
+    # group each event merge
+    paths = glob.glob(glob_str)
+    assert len(paths) > 0, f"{glob_str}, returned no paths!"
+    dfs = []
+    cols = ['win_sz_st_end',score_col,'anat_region','region', 'eventID', 'patID']
+    for fname in paths:
+        df = pd.read_csv(fname)
+        # check assertions that df is ready for merge
+        assert set(cols).issubset(df.columns),f'df in {fname} does not contain columns necessary for score merge!'
+        df = df[df.win_sz_st_end == 0]
+        try:
+            logger.info(f"Summarized {df.patID.values[0]} anatomical involvement")
+            dfs.append(df[cols[1:]])
+        except IndexError:
+            logger.warning(f"Something weird in {fname}")
+    merged_df = pd.concat(dfs)
+    merged_df.to_csv(os.path.join('../data', merged_name))
+    logger.success(f"Finished mergeing {len(subjects)} subjects!")
 
 def score_power_subject(subject,power_dir="/mnt/ernie_main/Ghassan/ephys/data/ei_bal/",involvement='instantaneous', band='beta', **kwargs):
     """score and map bipoles to power df for later merging"""
@@ -293,10 +321,10 @@ def calc_power_corr(merged_df, **kwargs):
     merged_df = merged_df[merged_df.source == 'nz']
     merged_df = merged_df[merged_df.target == 'soz']
     merged_df = merged_df[merged_df.freq_band =='alpha']
-
     corr_dict = defaultdict(lambda: [])
-    for win, df in merged_df.groupby('win_sz_st_end'):
-        susceptible_df = df #df[df.ever_involved ==True]
+    for win, df in merged_df.groupby('win_label'):
+
+        susceptible_df = df[['win_sz_st_end','z_pdc','z_beta']].groupby('win_sz_st_end').mean().reset_index() #df[df.ever_involved ==True]
         #adaptable_df = df[df.ever_involved ==False]
         # change for different pdc values
 
@@ -317,37 +345,36 @@ def calc_power_corr(merged_df, **kwargs):
         suscept_ols = sms.OLS(y_suscept,x_suscept).fit()
         corr_dict['slope'].append(suscept_ols.params['z_beta'])
         corr_dict['p_val'].append(suscept_ols.pvalues['z_beta'])
+        logger.info(f"Win: {win} p_value: {suscept_ols.pvalues}")
         corr_dict['node_type'].append('susceptable')
-        corr_dict['win_sz_st_end'].append(win)
+        corr_dict['win_label'].append(win)
     return pd.DataFrame.from_dict(corr_dict)
 
-def plot_anat_involved(merged_df, pltname, regions=['NIZ','SOZ','PZ']**kwargs):
-    """given a dataframe of scored values for bipoles
-    creates a heatmap of anatomical regions implicated in beta_involvement
-    or could be applied to any stratification of the data"""
-    return 
 
-def plot_conn_corr(merged_df, pltname, x='win_sz_st_end', y='slope', hue='node_type', plot_stats=True, plot_sig = True, **kwargs):
+def plot_conn_corr(merged_df, pltname, x='win_label', y='slope', hue='node_type', plot_stats=True, plot_sig = True, **kwargs):
+    #TODO make more modular
+    merged_df['win_label'] = merged_df.win_sz_st_end.apply(label_timestamp)
     merged_df.z_beta = merged_df.z_beta.apply(np.abs)
     corr_df = calc_power_corr(merged_df, **kwargs)
     ymin=-.15
     ymax=.1
 
+
     if plot_stats:
         sig_inds = dict()
-        for win in range(-30,60):
-            win_df = corr_df[corr_df.win_sz_st_end == win]
+        for win in corr_df.win_label.unique():
+            win_df = corr_df[corr_df.win_label == win]
             p = win_df.p_val.values[0]
             if p <.05:
                 logger.info(f"Sig at {win} with p={p}")
-                sig_inds[win] = (p, map_p(p))
+            sig_inds[win] = (p, map_p(p))
         logger.info(f"Number of sig time points: {len(sig_inds)}")
-    corr_df = corr_df[corr_df.win_sz_st_end <80]
-    corr_df = corr_df[corr_df.win_sz_st_end >-60]
+    # corr_df = corr_df[corr_df.win_sz_st_end <80]
+    # corr_df = corr_df[corr_df.win_sz_st_end >-60]
     sns.set_theme(style='white', rc={'figure.figsize':(6,3.5)})
 
     if hue =='':
-        ax = sns.lineplot(data=corr_df, x=x, y=y)
+        ax = sns.violinplot(data=corr_df, x=x, y=y)
     else:
         ax = sns.lineplot(data=corr_df, x=x, y=y,hue=hue,style=hue)
     ax.spines['top'].set_visible(False)
@@ -365,16 +392,16 @@ def plot_conn_corr(merged_df, pltname, x='win_sz_st_end', y='slope', hue='node_t
     plt.xlim(-1,60)
 
     plt.ylabel("Correlation Coefficient")
-    plt.xlabel("Time (s)")
+    plt.xlabel("Window")
     plt.title("Correlation between beta power and NIZ to SOZ connectivity")
     plt.savefig(f"../viz/{pltname}.pdf", transparent=True, bbox_inches="tight")
     plt.close()
 
     if plot_stats:
-        plot_scatter(merged_df, sig_inds, pltname, **kwargs)
+        plot_scatter(merged_df, sig_inds , pltname, **kwargs)
     return
 
-def plot_scatter(merged_df, sig_inds, pltname, **kwargs):
+def plot_scatter(merged_df,sig_inds, pltname, **kwargs):
     """plots z_beta vs time stamp
     #TODO maybe make more modular? 
     # currently assumes that the scatter uses a merged df may be too spec""
@@ -385,22 +412,61 @@ def plot_scatter(merged_df, sig_inds, pltname, **kwargs):
 
     pltname = pltname.strip(".pdf")
     sig_wins = sig_inds.keys()
-    sig_df = merged_df[merged_df.win_sz_st_end.isin(sig_wins)]
+    # sig_df = merged_df[merged_df.win_sz_st_end.isin(sig_wins)]
     sns.set_theme(style='white', rc={'figure.figsize':(6,3.5)})
-    for win, df in sig_df.groupby('win_sz_st_end'):
+    for win, df in merged_df.groupby('win_label'):
+        df = df[['win_sz_st_end','z_pdc','z_beta']].groupby('win_sz_st_end').mean().reset_index()     
         pval,_ = sig_inds[win]
-        title = f"NIZ-SOZ Flow vs. Ictal BetaPower at t={win}, p={pval}" 
-        ax = sns.regplot(df, x='z_beta', y='z_pdc')
+        title = f"NIZ-SOZ Flow vs. Ictal BetaPower at\n t={win}, p={pval}"
+        plt.subplots(figsize=(5,5))
+        ax = sns.regplot(df, x='z_beta', y='z_pdc', color='#A2142F')
         ax.spines['top'].set_visible(False)
         ax.spines['right'].set_visible(False)
+        
         # _ = sns.lineplot(df, x='z_beta', y='z_pdc', ax=ax)
         plt.title(title)
         fname = os.path.join(f"../viz/{pltname}_{win}_scatter.pdf")
         logger.info(f"Plotted Scatter for t={win} and saved in: {pltname}")
+        plt.tight_layout()
         plt.savefig(fname)
         plt.close()
 
     return 
+
+def plot_anat_involved(merged_df, pltname, regions=['NIZ'], **kwargs):
+    """given a dataframe of scored values for bipoles
+    creates a heatmap of anatomical regions implicated in beta_involvement
+    or could be applied to any stratification of the data"""
+    def get_hitrate(row):
+        contra_df = grp_df[grp_df.beta_involved != row['beta_involved']]
+        contra_anat = contra_df[contra_df.anat_region == row['anat_region']]
+        if contra_anat.shape[0] == 0:
+             return 1.0
+        return (row.tally /(row.tally + contra_anat.tally)).values[0]
+    # per event map
+    # group within patient
+    # agg across patients
+    # plot score for region involved / total time regions mentioned
+
+    # allowing more events to speak rn fix later
+    logger.info(f'Region filt: {regions}')
+    merged_df = merged_df[merged_df.region.isin(regions)]
+    grp_df = merged_df.groupby(["beta_involved", "anat_region",]).count().reset_index().rename(columns={"Unnamed: 0":'tally'})
+    hit_rate = grp_df.apply(get_hitrate, axis=1)
+    
+    grp_df['hit_rate'] = hit_rate
+
+    plot_df = grp_df.pivot(index="anat_region", columns="beta_involved", values="hit_rate").fillna(0)
+    plot_df[plot_df < 0.5] = 0
+    plot_df = plot_df.sort_values(by=[True], ascending=False)
+    plt.subplots(figsize=(20,15))
+    yticklabels = plot_df.index
+    sns.heatmap(plot_df, yticklabels=yticklabels)
+    plt.tight_layout()
+    plt.savefig(pltname)
+    logger.success("Plotted heatmap for anatomical hit rates!")
+
+
 #TODO separate out connection types into certain plots
 # 1. first plot Nz_soz_true, nz_soz_false, nz_nz_true
 # 2. Z-score PDC against interictal period
@@ -848,6 +914,8 @@ def main(argv):
             load_merge_all(subjlist_verified, **kwargs)
         case "score_bips":
             score_power(subjlist_verified, **kwargs)
+        case "merge_anatomic":
+            group_scored_power(subjlist_verified, **kwargs)
         case "zscore_merge":
             load_score_merge_all(subjlist_verified, **kwargs)
         case "plot":

@@ -939,6 +939,23 @@ def get_sz_end(peri_df, use_col='win_sz_centered'):
     sz_end = sz_end[0]
     return peri_df[use_col].values[sz_end]
 
+def label_timestamp(t, sz_len=30):
+    """Given a centered and seizure aligned time stamp, returns a label for the window designation
+    assumes you have cnetered and resampled seizures
+    """
+    #pre-ictal is 1 min before
+    if t < -60:
+        return "interictal"
+    if t <0 and t > -60:
+        return 'pre-ictal'
+    if t >0 and t < sz_len/2:
+        return "early-ictal"
+    if t >= sz_len/2 and t <= sz_len:
+        return "late_ictal"
+    if t > sz_len:
+        return "post-ictal"
+    if t > sz_len +60:
+        return "late_post_ictal"
 
 def label_window(df_row, win_size, stride=1):
     """Labels a row of the data frame using the window_designation column
