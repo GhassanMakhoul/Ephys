@@ -946,12 +946,12 @@ def label_timestamp(t, sz_len=30):
     #pre-ictal is 1 min before
     if t < -60:
         return "interictal"
-    if t <0 and t > -60:
+    if t <0 and t >= -60:
         return 'pre-ictal'
-    if t >0 and t < sz_len/2:
+    if t >=0 and t < sz_len/2:
         return "early-ictal"
     if t >= sz_len/2 and t <= sz_len:
-        return "late_ictal"
+        return "late-ictal"
     if t > sz_len:
         return "post-ictal"
     if t > sz_len +60:

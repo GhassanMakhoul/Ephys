@@ -21,15 +21,32 @@ from scipy.stats import f_oneway
 from sklearn import linear_model
 from statsmodels.formula.api import ols
 import statsmodels.api as sms
-
+import pingouin as pg
 
 
 import matplotlib
 import matplotlib.pyplot as plt
 import seaborn as sns
 matplotlib.use('Agg')
-matplotlib.rcParams['pdf.fonttype'] = 42
-matplotlib.rcParams['ps.fonttype'] = 42
+plt.rcParams['pdf.fonttype'] = 42
+plt.rcParams['ps.fonttype'] = 42
+plt.rcParams['axes.labelweight']
+plt.rcParams['font.sans-serif'] = "Arial"
+plt.rcParams['font.family'] = 'sans-serif'
+plt.rcParams['axes.titlesize'] =  'large'
+plt.rcParams['ytick.left'] = True
+plt.rcParams['figure.figsize'] = (5,5)
+plt.rcParams['ytick.left'] = True
+plt.rcParams['xtick.bottom'] = True 
+plt.rcParams['xtick.major.size'] = 20
+plt.rcParams['xtick.major.width'] = 40 
+plt.rcParams['xtick.minor.size'] = 10 
+plt.rcParams['xtick.minor.width'] = 2 
+plt.rcParams['xtick.labelsize'] = 14 
+plt.rcParams['font.sans-serif'] =  "Arial" 
+plt.rcParams["font.family"] = "sans-serif"
+plt.rcParams["axes.linewidth"] = 10 
+plt.rcParams['font.weight'] =  'bold' 
 
 from utils import *
 from connectivity_dynamics import center_onset, label_timestamp
@@ -298,7 +315,7 @@ def load_dfs(flow_fname, power_fname, ignore_uknown=True):
             logger.warning(f"Only unknown seizure types in {subj}")
         flow_df = flow_df[flow_df.sz_type.isin(sz_filt)]
         power_df = power_df[power_df.sz_type.isin(sz_filt)]
-
+    
 
 
     assert len(set(flow_df.eventID)) == len(set(power_df.eventID)), "need same number of events!"
@@ -322,9 +339,13 @@ def calc_power_corr(merged_df, **kwargs):
     merged_df = merged_df[merged_df.target == 'soz']
     merged_df = merged_df[merged_df.freq_band =='alpha']
     corr_dict = defaultdict(lambda: [])
-    for win, df in merged_df.groupby('win_label'):
 
-        susceptible_df = df[['win_sz_st_end','z_pdc','z_beta']].groupby('win_sz_st_end').mean().reset_index() #df[df.ever_involved ==True]
+    for win, df in merged_df.groupby('win_label'):
+        if win =='post-ictal':
+            susceptible_df = df[['win_sz_st_end','z_pdc','z_beta']].groupby('win_sz_st_end').mean().reset_index() #df[df.ever_involved ==True]
+            susceptible_df = susceptible_df[susceptible_df.win_sz_st_end <61]
+        else:
+            susceptible_df = df[['win_sz_st_end','z_pdc','z_beta']].groupby('win_sz_st_end').mean().reset_index() #df[df.ever_involved ==True]
         #adaptable_df = df[df.ever_involved ==False]
         # change for different pdc values
 
@@ -345,9 +366,10 @@ def calc_power_corr(merged_df, **kwargs):
         suscept_ols = sms.OLS(y_suscept,x_suscept).fit()
         corr_dict['slope'].append(suscept_ols.params['z_beta'])
         corr_dict['p_val'].append(suscept_ols.pvalues['z_beta'])
-        logger.info(f"Win: {win} p_value: {suscept_ols.pvalues}")
+        logger.info(f"Win: {win} p_value: {suscept_ols.pvalues['z_beta']}")
         corr_dict['node_type'].append('susceptable')
         corr_dict['win_label'].append(win)
+        logger.info(f"Model summary for {win}:\n {suscept_ols.summary()}")
     return pd.DataFrame.from_dict(corr_dict)
 
 
@@ -365,43 +387,105 @@ def plot_conn_corr(merged_df, pltname, x='win_label', y='slope', hue='node_type'
         for win in corr_df.win_label.unique():
             win_df = corr_df[corr_df.win_label == win]
             p = win_df.p_val.values[0]
+            slope = win_df.slope.values[0]
             if p <.05:
-                logger.info(f"Sig at {win} with p={p}")
+                logger.info(f"Sig at {win} with p={p} with slope: {slope}")
             sig_inds[win] = (p, map_p(p))
         logger.info(f"Number of sig time points: {len(sig_inds)}")
     # corr_df = corr_df[corr_df.win_sz_st_end <80]
     # corr_df = corr_df[corr_df.win_sz_st_end >-60]
     sns.set_theme(style='white', rc={'figure.figsize':(6,3.5)})
 
-    if hue =='':
-        ax = sns.violinplot(data=corr_df, x=x, y=y)
-    else:
-        ax = sns.lineplot(data=corr_df, x=x, y=y,hue=hue,style=hue)
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
-    #for ax in grid.axes.flat:
-    ax.vlines(x=[0, 30], ymin=ymin, ymax=.15, ls='--', lw=2, label='seizure start - end')
-    if plot_stats:
-        ax.text(50, .05,'* < .05\n+ < .005\n# < .0005', fontsize=9)
-        for ind,(p,sig) in sig_inds.items():
-                #TODO insert plot sig here, any significant period
-                # add time stamp and add line + stats?
-                ax.text(x=ind, y=.09, s=sig)
+    # if hue =='':
+    #     ax = sns.violinplot(data=corr_df, x=x, y=y)
+    # else:
+    #     ax = sns.lineplot(data=corr_df, x=x, y=y,hue=hue,style=hue)
+    # ax.spines['top'].set_visible(False)
+    # ax.spines['right'].set_visible(False)
+    # #for ax in grid.axes.flat:
+    # ax.vlines(x=[0, 30], ymin=ymin, ymax=.15, ls='--', lw=2, label='seizure start - end')
+    # if plot_stats:
+    #     ax.text(50, .05,'* < .05\n+ < .005\n# < .0005', fontsize=9)
+    #     for ind,(p,sig) in sig_inds.items():
+    #             #TODO insert plot sig here, any significant period
+    #             # add time stamp and add line + stats?
+    #             ax.text(x=ind, y=.09, s=sig)
     
-    plt.ylim(ymin,ymax)
-    plt.xlim(-1,60)
+    # plt.ylim(ymin,ymax)
+    # plt.xlim(-1,60)
 
-    plt.ylabel("Correlation Coefficient")
-    plt.xlabel("Window")
-    plt.title("Correlation between beta power and NIZ to SOZ connectivity")
-    plt.savefig(f"../viz/{pltname}.pdf", transparent=True, bbox_inches="tight")
-    plt.close()
-
+    # plt.ylabel("Correlation Coefficient")
+    # plt.xlabel("Window")
+    # plt.title("Correlation between beta power and NIZ to SOZ connectivity")
+    # plt.savefig(f"../viz/{pltname}.pdf", transparent=True, bbox_inches="tight")
+    # plt.close()
+    if len(merged_df.win_sz_st_end.unique()) > 1:
+        plot_rmcorr(merged_df, pltname, **kwargs)
+        return
     if plot_stats:
         plot_scatter(merged_df, sig_inds , pltname, **kwargs)
     return
 
-def plot_scatter(merged_df,sig_inds, pltname, **kwargs):
+def plot_rmcorr(merged_df, pltname, **kwargs):
+        pltname = pltname.strip(".pdf")
+        merged_df['win_label'] = merged_df.win_sz_st_end.apply(label_timestamp)
+        merged_df = merged_df[merged_df.source == 'nz']
+        merged_df = merged_df[merged_df.target == 'soz']
+        merged_df = merged_df[merged_df.freq_band =='alpha']
+        merged_df['log(PDC)'] = np.log(merged_df.value)
+        peri_ictal_df = merged_df[(merged_df.win_sz_st_end > -61) & (merged_df.win_sz_st_end < 91)]
+        plt.rcParams['axes.labelweight']
+        plt.rcParams['font.sans-serif'] = "Arial"
+        plt.rcParams['font.family'] = 'sans-serif'
+        sns.set_style('white', {'axes.linewidth': 0.5})
+        plt.rcParams['xtick.major.size'] = 6
+        plt.rcParams['xtick.major.width'] = 4
+        plt.rcParams['ytick.major.size'] = 6
+        plt.rcParams['ytick.major.width'] = 4
+        plt.rcParams['xtick.bottom'] = True
+        plt.rcParams['ytick.left'] = True
+        plt.rcParams["axes.linewidth"] = 4
+
+        # pdb.set_trace()
+        for win in peri_ictal_df.win_label.unique():
+            win_df = peri_ictal_df[peri_ictal_df.win_label == win]
+            fit = pg.rm_corr(data=win_df, x='z_beta', y='z_pdc', subject='patID')
+            pval = fit.pval.values[0]
+            r = fit.r.values[0]
+            if pval > .05/4:
+                ax = pg.plot_rm_corr(data=win_df, x='z_beta', y='z_pdc', subject='patID', \
+                                     kwargs_facetgrid=dict(height=4, aspect=1),
+                                     legend=True, kwargs_line=dict(ls="solid", color='gray'),\
+                                          kwargs_scatter=dict(color='gray'))
+            else:
+                ax = pg.plot_rm_corr(data=win_df, x='z_beta', y='z_pdc', subject='patID', legend=True, \
+                                     kwargs_facetgrid=dict(height=4, aspect=1))
+
+      # get rid of spines on top and right (removes box appearance)
+            # ax.spines['top'].set_visible(False)
+            # ax.spines['right'].set_visible(False)
+
+            ## title ans x,y label formatting
+            title = f" {win} NIZ-SOZ flow vs. |Beta Power| \n r2:{r**2:.4f}, p={pval:.4e}"
+            plt.title(title, weight='bold')
+
+            plt.xlabel('|Z-scored Beta Power|', weight='bold',fontsize=15)
+            plt.ylabel('Z-scored PDC', weight='bold', fontsize=15)
+            # thicken axes lines
+            # for axis in ['bottom','left']:
+            #     ax.spines[axis].set_linewidth(4)
+            #Edit tick size, thickness, and labels
+            # ax.tick_params(axis='both', which='major', labelsize=12, width=4, length=10)
+            #last check to get everything bold
+            plt.rc("font", weight='bold')
+            sns.move_legend(ax, 'upper right',  bbox_to_anchor=(1.5, 1.1))
+            plt.tight_layout()
+            fname = os.path.join(f"../viz/{pltname}_scatter_{win}.pdf")
+            logger.info(f"Plotted Scatter for {win} and saved in: {fname}")
+            plt.savefig(fname)
+            plt.close()
+
+def plot_scatter(merged_df,sig_inds, pltname, color='#A2142F', **kwargs):
     """plots z_beta vs time stamp
     #TODO maybe make more modular? 
     # currently assumes that the scatter uses a merged df may be too spec""
@@ -412,22 +496,41 @@ def plot_scatter(merged_df,sig_inds, pltname, **kwargs):
 
     pltname = pltname.strip(".pdf")
     sig_wins = sig_inds.keys()
-    # sig_df = merged_df[merged_df.win_sz_st_end.isin(sig_wins)]
-    sns.set_theme(style='white', rc={'figure.figsize':(6,3.5)})
+    sns.set_style(style='white', rc=rc)
     for win, df in merged_df.groupby('win_label'):
         df = df[['win_sz_st_end','z_pdc','z_beta']].groupby('win_sz_st_end').mean().reset_index()     
+        if win =='post-ictal':
+            df = df[df.win_sz_st_end < 91]
+            pdb.set_trace()
         pval,_ = sig_inds[win]
-        title = f"NIZ-SOZ Flow vs. Ictal BetaPower at\n t={win}, p={pval}"
+        title = f"{win} NIZ-SOZ flow vs. |Beta Power| \n p={pval:8e}"
         plt.subplots(figsize=(5,5))
-        ax = sns.regplot(df, x='z_beta', y='z_pdc', color='#A2142F')
+        if pval > .05:
+            plt_color = 'gray'
+        else:
+            plt_color = color
+        ax = sns.regplot(df, x='z_beta', y='z_pdc', color=plt_color)
+        # get rid of spines on top and right (removes box appearance)
         ax.spines['top'].set_visible(False)
         ax.spines['right'].set_visible(False)
-        
-        # _ = sns.lineplot(df, x='z_beta', y='z_pdc', ax=ax)
-        plt.title(title)
+
+        ## title ans x,y label formatting
+        plt.title(title, weight='bold')
+        plt.xlabel('|Z-scored Beta Power|', weight='bold',fontsize=15)
+        plt.ylabel('Z-scored PDC', weight='bold', fontsize=15)
+        # thicken axes lines
+        for axis in ['bottom','left']:
+            ax.spines[axis].set_linewidth(4)
+        #Edit tick size, thickness, and labels
+        ax.tick_params(axis='both', which='major', labelsize=12, width=4, length=10)
+
+
+        #last check to get everything bold
+        plt.rc("font", weight='bold')
+
+        plt.tight_layout()
         fname = os.path.join(f"../viz/{pltname}_{win}_scatter.pdf")
         logger.info(f"Plotted Scatter for t={win} and saved in: {pltname}")
-        plt.tight_layout()
         plt.savefig(fname)
         plt.close()
 
@@ -579,12 +682,12 @@ def joint_kde_flow_power(flow_power_df, pltname, y='value',x='z_beta', sources=[
     with sns.plotting_context("paper"):
             #TODO consider removing enumeration
             for i, source in enumerate(sources):
-                for t, period, in enumerate(['interictal', 'pre_ictal','early_ictal','ictal','late_ictal','early_post_ictal','post_ictal']):
+                for t, period, in enumerate(['interictal', 'pre-ictal','early-ictal','late-ictal','post-ictal']):
                     plt.figure(figsize=(15,30))
                     plot_df = grp_flowpow_df.get_group((period, source))
                     count_df = plot_df.groupby(by="region_involved").count().reset_index()
 
-                    ax = sns.jointplot(data=plot_df, x=x, y=y, kind='kde', hue='region_involved', legend=True, palette=FLOWMAP, **kwargs)
+                    ax = sns.jointplot(data=plot_df, x=x, y=y, kind='kde', hue='region_involved', legend=True, palette=FLOWMAP, joint_kws={"n_levels":5}, **kwargs)
                         #sns.move_legend(og_ax, "upper left", bbox_to_anchor=(1, 1))
                     # Add a text box
                     text_box = dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.5)
@@ -828,6 +931,7 @@ def load_score_merge_all(subjects, num_cores=20, **kwargs):
 
 def plot_subjects(merged_df, pltname='flow_pow.pdf', band='beta', plot_type='kde', conn_band="all",plot_kwargs={}, norm_szrs=False, **kwargs):   
     kwargs.update(plot_kwargs)
+    logger.info(f"Plotting {plot_type}, on {len(merged_df.patID.unique())} patients")
     ## by default exclude unknown awareness
     if 'sz_type' in merged_df.columns:
         merged_df = merged_df[merged_df.sz_type.isin(['FIAS','FBTC','FAS'])]
@@ -845,6 +949,8 @@ def plot_subjects(merged_df, pltname='flow_pow.pdf', band='beta', plot_type='kde
         logger.info("Averaging within patient")
         cols = ['patID', 'bip',  'win_sz_st_end','beta_involved', 'source', 'win_label', 'freq_band','region_involved',  "value", 'z_beta']
         plot_df = merged_df[cols].groupby(cols[0:-2]).mean().reset_index()
+    else:
+        plot_df = merged_df
     match plot_type:
         case "kde":
             kde_flow_power(plot_df, pltname,x=x, **kwargs) 
@@ -892,7 +998,7 @@ def main(argv):
     logger.info(f"Running pipeline with following kwargs:\n\t\t\t\t{kwargs}")
     subjlist = pd.read_csv(subjlist,index_col=False, header=None)
     subjlist = [s[0] for s in subjlist.values] ## parse out 
-    logger.info(f"Runinng pipeline on {len(subjlist)} subjects")
+    logger.info(f"pipeline valid on {len(subjlist)} subjects")
     subjlist_verified = verify_subjlist(subjlist, flowdir, powdir)
     
     subjlist_verified = subjlist_verified
