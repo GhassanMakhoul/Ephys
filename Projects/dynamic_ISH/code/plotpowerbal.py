@@ -20,6 +20,7 @@ import numpy as np
 from scipy.stats import f_oneway
 from sklearn import linear_model
 from statsmodels.formula.api import ols
+from statsmodels.stats.anova import AnovaRM
 import statsmodels.api as sms
 import pingouin as pg
 
@@ -318,7 +319,7 @@ def load_dfs(flow_fname, power_fname, ignore_uknown=True):
     
 
 
-    assert len(set(flow_df.eventID)) == len(set(power_df.eventID)), "need same number of events!"
+    
     return flow_df, power_df
 
 def calc_power_corr(merged_df, **kwargs):
@@ -501,7 +502,7 @@ def plot_scatter(merged_df,sig_inds, pltname, color='#A2142F', **kwargs):
         df = df[['win_sz_st_end','z_pdc','z_beta']].groupby('win_sz_st_end').mean().reset_index()     
         if win =='post-ictal':
             df = df[df.win_sz_st_end < 91]
-            pdb.set_trace()
+            udb.set_trace()
         pval,_ = sig_inds[win]
         title = f"{win} NIZ-SOZ flow vs. |Beta Power| \n p={pval:8e}"
         plt.subplots(figsize=(5,5))
@@ -812,17 +813,27 @@ def center_seizure_onset(subjects, power_dir="/mnt/ernie_main/Ghassan/ephys/data
     pre_centered = 0
     for subject in subjects:
         centered_pow_dfs = []
-        centered_flow_dfs = []
-        # for event in events ids
         pow_fname = os.path.join(power_dir, f"power_bal_{subject}.csv")
-        flow_fname = os.path.join(flow_dir, f"peri_ictal_flow_verbose_{subject}.csv")
-
         pow_c_fname = pow_fname.replace(".csv", "_centered.csv")
+
+        centered_flow_dfs = []
+        flow_fname = os.path.join(flow_dir, f"peri_ictal_flow_verbose_{subject}.csv")
         flow_c_fname = flow_fname.replace('.csv', '_centered.csv')
+        # for event in events ids
+        
+        
+
+        #NOTE: this centering code runs power_dfs and flow_dfs through the same centering subroutines
+        # and ensures the data is aligned. However, if you just want to center flow or power, then
+        # This pipeline is not well modularized. It would be nice to disentangle these two
+        # but at this stage 11/11/24, I will just comment out portions I do/don't need for ease of 
+        # initial execution. TODO: In the future this could should be broken down into something more modular
+        
         if os.path.exists(pow_c_fname) and os.path.exists(flow_c_fname):
             pre_centered +=1
             continue
         flow_df, power_df = load_dfs(flow_fname, pow_fname)
+        assert len(set(flow_df.eventID)) == len(set(power_df.eventID)), "need same number of events!"
         if flow_df.shape[0] == 0:
             logger.warning(f"Subj: {subject} has been excluded from center onset, likely due filtering out unknown seizures. Double check.")
             continue
@@ -896,7 +907,9 @@ def run_stats(merged_df):
     for window in stats_df.win_label.unique():
         logger.info(f"Running {window}")
         win_stats_df = stats_df[stats_df.win_label == window]
-        anova2way_model = ols("value~beta_involved+target+beta_involved*target", data=win_stats_df).fit()
+
+        grp_df = win_stats_df[['patID', 'beta_involved', 'value','target' ]].groupby(by=['patID', 'beta_involved','target']).mean().reset_index()
+        anova2way_model = ols("value~beta_involved+target+beta_involved*target", data=grp_df).fit()
         stats_res = sms.stats.anova_lm(anova2way_model, type=2)
         logger.success(f"Computed stats for {window} window. Results:\n{stats_res}")
     return

@@ -9,7 +9,7 @@ import yaml
 from multiprocessing import Pool
 from functools import partial
 import getopt
-
+import dill as pickle
 
 from collections import Counter, defaultdict
 import pandas as pd
@@ -17,11 +17,46 @@ import numpy as np
 import copy
 from pandarallel import pandarallel
 
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LogisticRegression
+from sklearn.preprocessing import LabelBinarizer
+from sklearn.metrics import RocCurveDisplay, auc, confusion_matrix
+
 
 import seaborn as sns
 import matplotlib.pyplot as plt
+import matplotlib
 import tqdm
 from utils import *
+matplotlib.use('Agg')
+plt.rcParams['pdf.fonttype'] = 42
+plt.rcParams['ps.fonttype'] = 42
+plt.rcParams['axes.labelweight']
+plt.rcParams['font.sans-serif'] = "Arial"
+plt.rcParams['font.family'] = 'sans-serif'
+plt.rcParams['axes.titlesize'] =  'large'
+plt.rcParams['ytick.left'] = True
+plt.rcParams['figure.figsize'] = (8,8)
+plt.rcParams['ytick.left'] = True
+plt.rcParams['xtick.bottom'] = True 
+plt.rcParams['xtick.major.size'] = 10
+plt.rcParams['xtick.major.width'] = 4 
+plt.rcParams['xtick.minor.size'] = 5 
+plt.rcParams['xtick.minor.width'] = 2 
+plt.rcParams['xtick.labelsize'] = 14
+
+
+plt.rcParams['ytick.major.size'] = 10
+plt.rcParams['ytick.major.width'] = 4 
+plt.rcParams['ytick.minor.size'] = 5 
+plt.rcParams['ytick.minor.width'] = 2 
+plt.rcParams['ytick.labelsize'] = 14
+
+plt.rcParams['font.sans-serif'] =  "Arial" 
+plt.rcParams["font.family"] = "sans-serif"
+plt.rcParams["axes.linewidth"] = 3 
+plt.rcParams['font.weight'] =  'bold' 
+
 
 #TODO: work through and log relevant output for mass run
 #TODO: make more modular for ANY connectivity metric, not just PDC
@@ -632,7 +667,7 @@ def conn_to_flow_dict(conn_mat:np.ndarray, reg_inds:dict, window_dict, period, b
     # only includes categories with at least one electrode
     flow_targets = [(src, trgt) for src in reg_inds.keys() for trgt in reg_inds.keys() if (reg_inds[src].size > 0) & (reg_inds[trgt].size > 0)]
     keys = ['source','target','value','period','window_designations', 'freq_band']
-
+    pdb.set_trace()
     for (src, trgt) in flow_targets:
         src_inds = reg_inds[src]
         trgt_inds = reg_inds[trgt]
@@ -661,17 +696,20 @@ def conn_to_flow_dict_verbose(conn_mat:np.ndarray, reg_inds:dict, window_dict, p
     """
     # only includes categories with at least one electrode
     flow_targets = [(src, trgt) for src in reg_inds.keys() for trgt in reg_inds.keys() if (reg_inds[src].size > 0) & (reg_inds[trgt].size > 0)]
-    keys = ['source','target','src_bip','value','period','window_designations','freq_band']
-
+    keys = ['source','target','src_bip','value','in_conn','out_conn','net_conn','period','window_designations','freq_band']
     for (src, trgt) in flow_targets:
         src_inds = reg_inds[src]
         trgt_inds = reg_inds[trgt]
 
         for src_ind in src_inds:
             src_rows = conn_mat[src_ind,:]
+            out_conn = np.nanmean(src_rows)
+            in_conn = np.nanmean(conn_mat[:,src_ind])
+            net_conn = in_conn - out_conn
             src_trgt_conns = np.nanmean(src_rows[trgt_inds])
             src_bip = chan_names[src_ind]
-            for key, val in zip(keys,(src,trgt,src_bip,src_trgt_conns,period,window_dict[period],band)):
+            
+            for key, val in zip(keys,(src,trgt,src_bip,src_trgt_conns,in_conn, out_conn, net_conn, period,window_dict[period],band)):
                 flow_dict = update_dict(flow_dict, key, val)
 
     return flow_dict
@@ -1058,6 +1096,199 @@ def find_transition(window_designations, center_designations):
             return -1
     return transition[0]
 
+def center_peri_dfs(inp_path, out_path = "../data/connectivity/", **kwargs):
+    """Given an input path to generate a list of subjects to center,
+    loads dataframes and centers their peri-ictal connectivity using the center_onset
+    saves the dataframes out """
+    fnames = glob.glob(os.path.join(inp_path, "peri_ictal_flow_verbose_*pat*.csv"))
+    logger.info(f"{len(fnames)} total paths to center")
+    n_fs = len(fnames)
+    count = 0
+    for fname in fnames:
+
+        subj = fname.split("_")[-1].strip(".csv")
+        if os.path.exists(os.path.join(out_path, f"peri_ictal_flow_verbose_centered_{subj}.csv")):
+            count +=1 
+            continue
+  
+        df = pd.read_csv(fname)
+        logger.info(f"Centering {subj}, with {len(df.eventID.unique())} events")
+        df = center_onset(df)
+        df.win_label = df.win_sz_st_end.apply(label_timestamp)
+        
+        count += 1 
+        df.to_csv(os.path.join(out_path, f"peri_ictal_flow_verbose_centered_{subj}.csv"))
+        logger.success(f"Saved {subj} with {len(df.eventID.unique())} events.\n\t\t\t\t\t\tSaved in {out_path}  \
+            peri_ictal_flow_verbose{subj}.csv, {count}/{n_fs} subjs")
+
+def prep_classification_data(inp_path, out_path="../data/classify", freq_band='alpha', overwrite=False, cutoff=30, **kwargs):
+
+    grp_cols = ['patID','eventID','sz_type','source','src_bip','win_label','freq_band']
+    quant_cols = ['value', 'in_conn', 'out_conn', 'net_conn']
+    fnames = glob.glob(os.path.join(inp_path, 'peri_ictal_flow_verbose_centered_*pat*.csv'))
+
+    n_fs = len(fnames)
+    count = 0
+    for fname in fnames:
+        subj = fname.split("_")[-1].strip(".csv")
+        if os.path.exists(os.path.join(out_path, f"{subj}_X.npy")) and not overwrite:
+            count +=1 
+            continue
+        
+        df = pd.read_csv(fname)
+        if (df.sz_end < cutoff).all():
+            logger.warning(f"Subj {subj} has no seizures greater than {cutoff}s")
+            continue
+        win_df = df[grp_cols + quant_cols].groupby(grp_cols).mean().reset_index()
+        win_df = win_df[win_df.freq_band == freq_band]
+        bip_labels = dict(zip(win_df.src_bip, win_df.source))
+        
+        # Build X and y matrices
+        data = []
+        labels = []
+        for event in win_df.eventID.unique():
+            event_df = win_df[win_df.eventID == event]
+            if len(event_df.win_label.unique()) < 5:
+                logger.warning(f"Subject {subj} only has {event_df.win_label.unique()} periods for event {event},expected 5 periods") 
+                continue
+            if event_df.net_conn.isna().any():
+                logger.warning(f"Event {event} for subject {subj} has nan values, check pipeline")
+                continue
+            x_event = event_df.pivot(index='src_bip', columns='win_label', values='net_conn')
+            data.append(x_event.values)
+            bips = x_event.index.values
+            bip_labels = dict(zip(event_df.src_bip, event_df.source))
+            y_event = [bip_labels[reg] for reg in bips]
+            labels.append(y_event)
+        
+        X = np.concatenate(data)
+        Y = np.concatenate(labels)
+        with open(os.path.join(out_path, f'{subj}_X.npy'), 'wb') as f:
+            np.save(f, X)
+        with open(os.path.join(out_path, f"{subj}_y.npy"), 'wb') as f:
+            np.save(f,Y)
+        count += 1 
+        logger.success(f"Transformed {subj}'s peri-ictal flow for {len(win_df.eventID.unique())} events to a matrix \n\
+                        \t\t\t\t\t\tsize : {X.shape} with class breakdown {Counter(Y)} \
+                        \n\\t\tt\t\t\t\t\tsaved {count}/{n_fs} subjects")
+    return
+
+
+def build_run_classifier(inp_path, random_state=666,**kwargs):
+    x_fnames = glob.glob(os.path.join(inp_path, "*_X.npy"))
+    n_fs = len(x_fnames)
+    conf_mats = [] # store all confustion matrices across all runs
+
+    tprs = []
+    aucs = []
+    mean_fpr = np.linspace(0, 1, 100)
+
+    fig, ax = plt.subplots(figsize=(8, 8))
+    count = 0
+    for x_f in x_fnames: #this is gonna get messy!
+        # get subject name by string parsing file name
+        subj = x_f.split("/")[-1].split("_")[0]
+        y_f = os.path.join(inp_path, f"{subj}_y.npy")
+        with open(x_f, 'rb') as f:
+            X = np.load(f)
+        with open(y_f, 'rb') as f:
+            Y = np.load(f)
+        n_samples, n_features = X.shape
+        n_classes = len(np.unique(Y))
+        (
+            X_train,
+            X_test,
+            y_train,
+            y_test,
+        ) = train_test_split(X,Y , test_size=0.5, stratify=Y, random_state=random_state)
+        if len(np.unique(y_train)) == 1 or len(np.unique(y_test)) ==1:
+            logger.warning(f"subj {subj} has only one class label")
+            continue
+        if 'soz' not in y_test or 'soz' not in y_train:
+            logger.warning(f"Subj {subj} doesn't have any SOZ labels in data!")
+            continue
+        classifier = LogisticRegression(class_weight='balanced')
+        if np.isnan(X_train).any():
+            pdb.set_trace()
+        clf = classifier.fit(X_train, y_train)
+        y_score = clf.predict_proba(X_test)
+        y_pred = clf.predict(X_test)
+        
+        confusion = confusion_matrix(y_pred, y_test,normalize='true',labels=np.unique(Y))
+        conf_mats.append((confusion,clf.classes_))
+        label_binarizer = LabelBinarizer().fit(y_train)
+        
+        if len(np.unique(y_train)) == 2:
+            class_id = np.where(class_of_interest == clf.classes_)[0]
+            y_true  = label_binarizer.transform(y_test)
+    
+        else:
+            y_onehot_test = label_binarizer.transform(y_test)
+            class_of_interest = "soz"
+            class_id = np.flatnonzero(label_binarizer.classes_ == class_of_interest)[0]
+            y_true = y_onehot_test[:, class_id]
+        # add new AUC to plot and agg true positive rates (tprs) and aucs
+        
+        viz = RocCurveDisplay.from_predictions(
+            y_true,
+            y_score[:, class_id],
+            name=f"{subj}: {class_of_interest} vs the rest",
+            ax=ax,
+            plot_chance_level=True,
+        )
+        count +=1
+        logger.info(f"Just did train/test on {subj} with AUC:{viz.roc_auc}. Subj {count}/{n_fs}")
+
+
+        interp_tpr = np.interp(mean_fpr, viz.fpr, viz.tpr)
+        interp_tpr[0] = 0.0
+        tprs.append(interp_tpr)
+        aucs.append(viz.roc_auc)
+
+        if count >= 841:
+            pdb.set_trace()
+    
+  
+    mean_tpr = np.mean(tprs, axis=0)
+    mean_tpr[-1] = 1.0
+    mean_auc = auc(mean_fpr, mean_tpr)
+    std_auc = np.std(aucs)
+    ax.plot(
+        mean_fpr,
+        mean_tpr,
+        color="b",
+        label=r"Mean ROC (AUC = %0.2f $\pm$ %0.2f)" % (mean_auc, std_auc),
+        lw=2,
+        alpha=0.8,
+    )
+
+    std_tpr = np.std(tprs, axis=0)
+    tprs_upper = np.minimum(mean_tpr + std_tpr, 1)
+    tprs_lower = np.maximum(mean_tpr - std_tpr, 0)
+    ax.fill_between(
+        mean_fpr,
+        tprs_lower,
+        tprs_upper,
+        color="grey",
+        alpha=0.2,
+        label=r"$\pm$ 1 std. dev.",
+    )
+
+    ax.set(
+        xlabel="False Positive Rate",
+        ylabel="True Positive Rate",
+        title='One-vs-Rest ROC curves:\nSOZ vs (NIZ & PZ)'
+    )
+    ax.legend(bbox_to_anchor=(1.1, 1.1))
+    plt.savefig("../viz/classification.pdf", transparent= True, bbox_inches='tight')
+    plt.tight_layout()
+    plt.close()
+
+    with open("../data/conf_mat.pkl", 'wb') as f:
+        pickle.dump(conf_mats,f)
+        logger.info(f"Saved confusion matrix in ../data/conf_mat.pkl")
+    return
+
 def peri_net_pipeline(pathout, paths, num_cores=16, **kwargs):
     count = 0
     peri_dfs = []
@@ -1081,10 +1312,10 @@ def peri_net_pipeline(pathout, paths, num_cores=16, **kwargs):
 
 
 def main(argv):
-    opts, _ = getopt.getopt(argv,"d:p:c:l:",["datadir=",'pathout=','config=','logdir='])
+    opts, _ = getopt.getopt(argv,"d:p:c:l:",["inp_path=",'pathout=','config=','logdir='])
     for opt, arg in opts:
-        if opt in ("-d", 'datadir'):
-            datadir = arg
+        if opt in ("-d", 'inp_path'):
+            inp_path = arg
         elif opt in ('-p', '--pathout'):
             pathout = arg
         elif opt in ("-c", '--config'):
@@ -1101,12 +1332,21 @@ def main(argv):
     print(kwargs)
     pipeline = "net" if 'pipeline' not in kwargs.keys() else kwargs['pipeline']
 
-    paths = glob.glob(os.path.join(datadir, "*PDC.mat"))
+    paths = glob.glob(os.path.join(inp_path, "*PDC.mat"))
     match pipeline:
         case 'net':
             peri_net_pipeline(pathout, paths, **kwargs)
         case 'trinode':
             gen_flow_dfs(pathout, paths, **kwargs)
+        case 'center':
+            logger.info(f"About to center all verbose files in {inp_path}")
+            center_peri_dfs(inp_path, **kwargs)
+        case "prep_classify":
+            logger.info(f"About to prep centered files in {inp_path} for classification")
+            prep_classification_data(inp_path, **kwargs)
+        case "classify":
+            logger.info(f"About to run classification on pre-computed peri-ictal data in {inp_path}")
+            build_run_classifier(inp_path)
         case "power_spectral":
             return NotImplementedError("Need to Implement Straight UP PSD")
         case "e_i_bal":
