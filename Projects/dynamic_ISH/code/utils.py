@@ -244,13 +244,16 @@ def format_bipole(bipole):
 def format_bipoles(char_list):
     return [format_bipole(c) for c in char_list]
 
-def paried_region_significance(region_vals:dict)-> np.ndarray:
+def paried_region_significance(region_vals:dict, permutations=10000)-> np.ndarray:
     """Given a dictionary mapping region name to connectivity values
     returns the pairwise N_reg x N_reg significance matrix
 
     Args:
         region_vals (dict): dictionary with keys as region names and values as region
         connectivity values
+
+        permutations : number of times to run permutation over dataset for significance test
+                        recommend at least 10,0000 or NONE
 
     Returns:
         list[str], np.ndarray: region index names, N_reg x N _reg significance matrix
@@ -265,7 +268,7 @@ def paried_region_significance(region_vals:dict)-> np.ndarray:
             if i ==j:
                 continue
             dist_b = region_vals[reg_keys[j]]
-            sig_mat[i,j] = ttest_ind(dist_a, dist_b, permutations=100)[1]
+            sig_mat[i,j] = ttest_ind(dist_a, dist_b, permutations=permutations)[1]
     return reg_keys, sig_mat
 
 

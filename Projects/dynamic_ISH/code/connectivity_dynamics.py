@@ -19,9 +19,10 @@ from pandarallel import pandarallel
 
 from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LogisticRegression
+from sklearn.svm import LinearSVC, SVC, NuSVC
 from sklearn.preprocessing import LabelBinarizer
 from sklearn.metrics import RocCurveDisplay, auc, confusion_matrix
-
+from sklearn.model_selection import GridSearchCV, KFold, cross_val_score
 
 import seaborn as sns
 import matplotlib.pyplot as plt
@@ -667,7 +668,7 @@ def conn_to_flow_dict(conn_mat:np.ndarray, reg_inds:dict, window_dict, period, b
     # only includes categories with at least one electrode
     flow_targets = [(src, trgt) for src in reg_inds.keys() for trgt in reg_inds.keys() if (reg_inds[src].size > 0) & (reg_inds[trgt].size > 0)]
     keys = ['source','target','value','period','window_designations', 'freq_band']
-    pdb.set_trace()
+    
     for (src, trgt) in flow_targets:
         src_inds = reg_inds[src]
         trgt_inds = reg_inds[trgt]
@@ -1121,14 +1122,14 @@ def center_peri_dfs(inp_path, out_path = "../data/connectivity/", **kwargs):
         logger.success(f"Saved {subj} with {len(df.eventID.unique())} events.\n\t\t\t\t\t\tSaved in {out_path}  \
             peri_ictal_flow_verbose{subj}.csv, {count}/{n_fs} subjs")
 
-def prep_classification_data(inp_path, out_path="../data/classify", freq_band='alpha', overwrite=False, cutoff=30, **kwargs):
+def prep_classification_data(inp_path, out_path="../data/classify",windows='all',conn=['net_conn'], freq_band='alpha', overwrite=False, cutoff=30, **kwargs):
 
     grp_cols = ['patID','eventID','sz_type','source','src_bip','win_label','freq_band']
-    quant_cols = ['value', 'in_conn', 'out_conn', 'net_conn']
+    quant_cols = ['value',] +conn# default to 'net_conn 'in_conn', 'out_conn', 'net_conn']
     fnames = glob.glob(os.path.join(inp_path, 'peri_ictal_flow_verbose_centered_*pat*.csv'))
-
     n_fs = len(fnames)
     count = 0
+    time_col = 'win_labdl' # summary column to aggregate against, defaults to summary over window
     for fname in fnames:
         subj = fname.split("_")[-1].strip(".csv")
         if os.path.exists(os.path.join(out_path, f"{subj}_X.npy")) and not overwrite:
@@ -1139,6 +1140,18 @@ def prep_classification_data(inp_path, out_path="../data/classify", freq_band='a
         if (df.sz_end < cutoff).all():
             logger.warning(f"Subj {subj} has no seizures greater than {cutoff}s")
             continue
+        if windows == 'dense':
+            assert "dense_up_lim" in kwargs.keys() and "dense_lw_lim" in kwargs.keys(), "ADD upper n lower lim to dense prep!"
+            logger.info(f"Including dense representation of the peri-ictal state")
+            grp_cols = ['patID','eventID','sz_type','source','src_bip','win_sz_st_end','freq_band']
+            upper_bound = kwargs['dense_up_lim']
+            lower_bound = kwargs['dense_lw_lim']
+            df = df[df.win_sz_st_end <= upper_bound ]
+            df = df[df.win_sz_st_end >= lower_bound]
+            time_col = 'win_sz_st_end'
+        elif windows != 'all':
+            df = df[df.win_label.isin(windows)]
+            logger.info(f"Subselecting for the following windows {windows}")
         win_df = df[grp_cols + quant_cols].groupby(grp_cols).mean().reset_index()
         win_df = win_df[win_df.freq_band == freq_band]
         bip_labels = dict(zip(win_df.src_bip, win_df.source))
@@ -1148,13 +1161,17 @@ def prep_classification_data(inp_path, out_path="../data/classify", freq_band='a
         labels = []
         for event in win_df.eventID.unique():
             event_df = win_df[win_df.eventID == event]
-            if len(event_df.win_label.unique()) < 5:
+            n_wins = len(event_df[time_col].unique())
+            if windows == 'dense' and n_wins < upper_bound - lower_bound:
+                logger.warning(f"Subject {subj} only has {n_wins} periods for event {event},expected {upper_bound - lower_bound} periods") 
+                continue
+            elif   (windows == 'all' and n_wins < 5) or n_wins < len(windows):
                 logger.warning(f"Subject {subj} only has {event_df.win_label.unique()} periods for event {event},expected 5 periods") 
                 continue
             if event_df.net_conn.isna().any():
                 logger.warning(f"Event {event} for subject {subj} has nan values, check pipeline")
                 continue
-            x_event = event_df.pivot(index='src_bip', columns='win_label', values='net_conn')
+            x_event = event_df.pivot(index='src_bip', columns=time_col, values=conn)
             data.append(x_event.values)
             bips = x_event.index.values
             bip_labels = dict(zip(event_df.src_bip, event_df.source))
@@ -1174,7 +1191,7 @@ def prep_classification_data(inp_path, out_path="../data/classify", freq_band='a
     return
 
 
-def build_run_classifier(inp_path, random_state=666,**kwargs):
+def build_run_classifier(inp_path, random_state=666, filt_engel1=False, engel_subj="", **kwargs):
     x_fnames = glob.glob(os.path.join(inp_path, "*_X.npy"))
     n_fs = len(x_fnames)
     conf_mats = [] # store all confustion matrices across all runs
@@ -1182,12 +1199,28 @@ def build_run_classifier(inp_path, random_state=666,**kwargs):
     tprs = []
     aucs = []
     mean_fpr = np.linspace(0, 1, 100)
-
+    
     fig, ax = plt.subplots(figsize=(8, 8))
     count = 0
-    for x_f in x_fnames: #this is gonna get messy!
+    pltname = '../viz/classification.pdf'
+    if filt_engel1:
+        engel_df = pd.read_csv(engel_subj)
+        engel1_subjs = engel_df.patID.values
+        logger.info("Only training on ENGEL I outcomes")
+        pltname = "../viz/classificaiton_engel1.pdf"
+    ##nested cross val setup
+    p_grid = {"C": [1, 5, 10, 100,1000,10000], 'gamma': [ 0.1, 0.125, .2,.5, 1], 'kernel': ['poly','rbf'], "degree": [2,3,5]}
+    svm = SVC( probability=True, class_weight='balanced', tol=1e-5)
+    nested_scores = np.zeros(4)
+
+    for i, x_f in enumerate(x_fnames): #this is gonna get messy!
         # get subject name by string parsing file name
         subj = x_f.split("/")[-1].split("_")[0]
+        if filt_engel1:
+            if subj not in engel1_subjs:
+                logger.info(f"Subj {subj} is not engel 1, skipping")
+                continue
+
         y_f = os.path.join(inp_path, f"{subj}_y.npy")
         with open(x_f, 'rb') as f:
             X = np.load(f)
@@ -1195,22 +1228,34 @@ def build_run_classifier(inp_path, random_state=666,**kwargs):
             Y = np.load(f)
         n_samples, n_features = X.shape
         n_classes = len(np.unique(Y))
+
+        inner_cv = KFold(n_splits=10, shuffle=True, random_state=i)
         (
             X_train,
             X_test,
             y_train,
             y_test,
-        ) = train_test_split(X,Y , test_size=0.5, stratify=Y, random_state=random_state)
+        ) = train_test_split(X,Y , test_size=0.2, stratify=Y, random_state=random_state)
+        
         if len(np.unique(y_train)) == 1 or len(np.unique(y_test)) ==1:
             logger.warning(f"subj {subj} has only one class label")
             continue
         if 'soz' not in y_test or 'soz' not in y_train:
             logger.warning(f"Subj {subj} doesn't have any SOZ labels in data!")
             continue
-        classifier = LogisticRegression(class_weight='balanced')
+        label_count = Counter(y_train)
+        coeff = {"nz":1 , 'soz':label_count['soz']*100, 'pz':label_count['pz']*100, }
+        class_weights = [coeff[label]/label_count[label] for label in y_train]
+        svm.class_weight_ = class_weights
+        logger.info(f"Class Weights: {Counter(class_weights)}")
+        ## Nested cross validation here
+        clf = GridSearchCV(estimator=svm, param_grid=p_grid, cv=inner_cv, n_jobs=20)
+        clf.fit(X_train, y_train)
+        logger.info(f"Best Params for {subj}: {clf.best_params_} with best cv score: {clf.best_score_}")
+        #classifier = SVC(class_weight='balanced', kernel='rbf', probability=True, gamma=2, C=5)
         if np.isnan(X_train).any():
             pdb.set_trace()
-        clf = classifier.fit(X_train, y_train)
+        #jclf = classifier.fit(X_train, y_train)
         y_score = clf.predict_proba(X_test)
         y_pred = clf.predict(X_test)
         
@@ -1236,8 +1281,185 @@ def build_run_classifier(inp_path, random_state=666,**kwargs):
             ax=ax,
             plot_chance_level=True,
         )
+            
         count +=1
-        logger.info(f"Just did train/test on {subj} with AUC:{viz.roc_auc}. Subj {count}/{n_fs}")
+        logger.info(f"Just did train/test on {subj} with AUC:{viz.roc_auc}. Num {count}/") 
+
+
+        interp_tpr = np.interp(mean_fpr, viz.fpr, viz.tpr)
+        interp_tpr[0] = 0.0
+        tprs.append(interp_tpr)
+        aucs.append(viz.roc_auc)
+
+        if count >= 841:
+            pdb.set_trace()
+    
+    mean_tpr = np.mean(tprs, axis=0)
+    mean_tpr[-1] = 1.0
+    mean_auc = auc(mean_fpr, mean_tpr)
+    std_auc = np.std(aucs)
+    ax.plot(
+        mean_fpr,
+        mean_tpr,
+        color="b",
+        label=r"Mean ROC (AUC = %0.2f $\pm$ %0.2f)" % (mean_auc, std_auc),
+        lw=2,
+        alpha=0.8,
+    )
+
+    std_tpr = np.std(tprs, axis=0)
+    tprs_upper = np.minimum(mean_tpr + std_tpr, 1)
+    tprs_lower = np.maximum(mean_tpr - std_tpr, 0)
+    ax.fill_between(
+        mean_fpr,
+        tprs_lower,
+        tprs_upper,
+        color="grey",
+        alpha=0.2,
+        label=r"$\pm$ 1 std. dev.",
+    )
+
+    ax.set(
+        xlabel="False Positive Rate",
+        ylabel="True Positive Rate",
+        title='One-vs-Rest ROC curves:\nSOZ vs (NIZ & PZ)'
+    )
+    ax.legend(bbox_to_anchor=(1.1, 1.1))
+    plt.savefig(pltname, transparent= True, bbox_inches='tight')
+    logger.success(f"Saving ROC to {pltname}, mean AUC {mean_auc}")
+    plt.tight_layout()
+    plt.close()
+
+    with open("../data/conf_mat.pkl", 'wb') as f:
+        pickle.dump(conf_mats,f)
+        logger.info(f"Saved confusion matrix in ../data/conf_mat.pkl")
+    return
+
+
+def build_run_agg_classifier(inp_path, random_state=666,n_folds=5,filt_engel1='full', engel_subj="",n_jobs=4,**kwargs):
+    """ Aggregates over whole patient cohort into one training set. may not obey IID, but it 
+    Will inflate our SOZ count per training batch
+    """
+    x_fnames = glob.glob(os.path.join(inp_path, "*_X.npy"))
+    n_fs = len(x_fnames)
+    conf_mats = [] # store all confustion matrices across all runs
+
+    tprs = []
+    aucs = []
+    mean_fpr = np.linspace(0, 1, 100)
+
+    fig, ax = plt.subplots(figsize=(8, 8))
+    count = 0
+    X =[]
+    Y= []
+
+    ##nested cross val setup
+
+    p_grid = {"C": [ 1, 10], 'gamma': [  0.1], 'kernel': ['rbf',]}
+    #p_grid = {"C":[1, 5, 10,20,40,60,80,100,120,140,150,250,500,1000] [1, ], 'gamma': [ 0.06, 0.1], 'kernel': ['rbf']}# ,"degree": [3,5] }
+
+    svm = SVC( probability=True, class_weight='balanced', tol=1e-3)
+
+    # TODO - For class weights do the other way by a factor of ten
+    #TODO make sure you're overfitting to SOZ 
+    # TODO Fit with ensemble prediction, if ever an SOZ then classify as the SOZ
+     # can then segue into the clniical neuromodulation paradigm
+
+
+
+    engel_df = pd.read_csv(engel_subj)
+    engel1_subjs = engel_df.patID.values
+    if filt_engel1 == 'engel1':
+        logger.info("Only training on ENGEL I outcomes")
+        pltname = "../viz/classificaiton_engel1.pdf"
+    elif filt_engel1 == 'engel2-4':
+        logger.info("Engel2-4 filter")
+        pltname = '../viz/classification_engelII_IV.pdf'
+    else:
+        pltname = '../viz/classification_FULL.pdf'
+
+    for x_f in x_fnames: #this is gonna get messy!
+        # get subject name by string parsing file name
+        subj = x_f.split("/")[-1].split("_")[0]
+        if filt_engel1 == "engel1":
+            if subj not in engel1_subjs:
+                logger.info(f"Subj {subj} is not engel 1, skipping")
+                continue
+        elif filt_engel1 == 'engel2-4':
+            if subj in engel1_subjs:
+                logger.info(f"Subj {subj} is engel 1, skipping for full cohort")
+    
+        y_f = os.path.join(inp_path, f"{subj}_y.npy")
+        with open(x_f, 'rb') as f:
+            x_subj = np.load(f)
+            X.append(x_subj)
+        with open(y_f, 'rb') as f:
+            y_subj = np.load(f)
+            Y.append(y_subj)
+    X = np.concatenate(X)
+    Y = np.concatenate(Y)
+    logger.info(f"Training size: {X.shape}")
+    n_samples, n_features = X.shape
+    n_classes = len(np.unique(Y))
+    for fold in range(n_folds):
+        (
+            X_train,
+            X_test,
+            y_train,
+            y_test,
+        ) = train_test_split(X,Y , test_size=0.25, stratify=Y)
+        if len(np.unique(y_train)) == 1 or len(np.unique(y_test)) ==1:
+            logger.warning(f"subj {fold} has only one class label")
+            continue
+        if 'soz' not in y_test or 'soz' not in y_train:
+            logger.warning(f"Subj {fold} doesn't have any SOZ labels in data!")
+            continue
+
+        label_count = Counter(y_train)
+        coeff = {"nz": 1, 'soz':label_count['soz']*10000, 'pz':label_count['pz']*100, }
+        class_weights = [coeff[label]/label_count[label] for label in y_train]
+        svm.class_weight_ = class_weights
+
+        inner_cv = KFold(n_splits=2, shuffle=True, random_state=fold)
+
+        clf = GridSearchCV(estimator=svm, param_grid=p_grid, cv=inner_cv, n_jobs=n_jobs)
+        clf.fit(X_train, y_train)
+        logger.info(f"Best Params for {subj}: {clf.best_params_} with best cv score: {clf.best_score_}")
+        #classifier = SVC(class_weight='balanced', kernel='rbf', probability=True, gamma=2, C=5)
+        if np.isnan(X_train).any():
+            pdb.set_trace()
+        #jclf = classifier.fit(X_train, y_train)
+        y_score = clf.predict_proba(X_test)
+        y_pred = clf.predict(X_test)
+        if np.isnan(X_train).any():
+            pdb.set_trace()
+        y_score = clf.predict_proba(X_test)
+        y_pred = clf.predict(X_test)
+        
+        confusion = confusion_matrix(y_pred, y_test,normalize='true',labels=np.unique(Y))
+        conf_mats.append((confusion,clf.classes_))
+        label_binarizer = LabelBinarizer().fit(y_train)
+        
+        if len(np.unique(y_train)) == 2:
+            class_id = np.where(class_of_interest == clf.classes_)[0]
+            y_true  = label_binarizer.transform(y_test)
+    
+        else:
+            y_onehot_test = label_binarizer.transform(y_test)
+            class_of_interest = "soz"
+            class_id = np.flatnonzero(label_binarizer.classes_ == class_of_interest)[0]
+            y_true = y_onehot_test[:, class_id]
+        # add new AUC to plot and agg true positive rates (tprs) and aucs
+        
+        viz = RocCurveDisplay.from_predictions(
+            y_true,
+            y_score[:, class_id],
+            name=f"{fold}: {class_of_interest} vs the rest",
+            ax=ax,
+            plot_chance_level=True,
+        )
+        count +=1
+        logger.info(f"Just did train/test on {fold} with AUC:{viz.roc_auc}. fold {count}/{n_folds}")
 
 
         interp_tpr = np.interp(mean_fpr, viz.fpr, viz.tpr)
@@ -1280,13 +1502,14 @@ def build_run_classifier(inp_path, random_state=666,**kwargs):
         title='One-vs-Rest ROC curves:\nSOZ vs (NIZ & PZ)'
     )
     ax.legend(bbox_to_anchor=(1.1, 1.1))
-    plt.savefig("../viz/classification.pdf", transparent= True, bbox_inches='tight')
+    plt.savefig(pltname, transparent= True, bbox_inches='tight')
+    logger.success(f"Saving ROC to {pltname}, mean AUC {mean_auc}")
     plt.tight_layout()
     plt.close()
 
-    with open("../data/conf_mat.pkl", 'wb') as f:
+    with open(f"../data/conf_mat_{filt_engel1}.pkl", 'wb') as f:
         pickle.dump(conf_mats,f)
-        logger.info(f"Saved confusion matrix in ../data/conf_mat.pkl")
+        logger.info(f"Saved confusion matrix in ../data/conf_mat_{filt_engel1}.pkl")
     return
 
 def peri_net_pipeline(pathout, paths, num_cores=16, **kwargs):
@@ -1346,7 +1569,11 @@ def main(argv):
             prep_classification_data(inp_path, **kwargs)
         case "classify":
             logger.info(f"About to run classification on pre-computed peri-ictal data in {inp_path}")
-            build_run_classifier(inp_path)
+            build_run_classifier(inp_path, **kwargs)
+        
+        case "classify_agg":
+            logger.info(f"About to run AGG classification on pre-computed peri-ictal data in {inp_path}")
+            build_run_agg_classifier(inp_path, **kwargs)
         case "power_spectral":
             return NotImplementedError("Need to Implement Straight UP PSD")
         case "e_i_bal":

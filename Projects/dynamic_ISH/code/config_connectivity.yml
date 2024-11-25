@@ -3,9 +3,18 @@ peri_para:
   num_cores : 12
   buffer : 60
   verbose : True
-  pipeline: 'classify'
+  pipeline: 'classify_agg'
+  conn : ['in_conn', 'net_conn']
   overwrite : True
+  out_path : '../data/classify_dense_peri_only_inout/'
+  windows : 'dense'
+  dense_lw_lim : -10
+  dense_up_lim : 20
   zscore: True
+  n_jobs : 2
+  filt_engel1 : 'engel2-4'
+  engel_subj : 'subj_list_engel1.csv'
+
 ei_bal:
   num_cores : 24
 power:
