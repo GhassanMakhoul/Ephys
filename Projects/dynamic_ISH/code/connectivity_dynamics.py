@@ -1355,10 +1355,11 @@ def build_run_agg_classifier(inp_path, random_state=666,n_folds=5,filt_engel1='f
 
     ##nested cross val setup
 
-    p_grid = {"C": [ 1, 10], 'gamma': [  0.1], 'kernel': ['rbf',]}
-    #p_grid = {"C":[1, 5, 10,20,40,60,80,100,120,140,150,250,500,1000] [1, ], 'gamma': [ 0.06, 0.1], 'kernel': ['rbf']}# ,"degree": [3,5] }
+    #p_grid = {"C": [ 1, 10], 'gamma': [  0.1], 'kernel': ['rbf',]}
+    #97, 103 70 for engelI
+    #p_grid = {"C":np.linspace(100,102.5,20), 'gamma': [.001, .05,], 'kernel': ['rbf']}#, 'poly'] ,"degree": [3,5] }
+    p_grid = {"C":[99,100.52631578947368,105], 'gamma': [.001], 'kernel': ['rbf']}#, 'poly'] ,"degree": [3,5] }
 
-    svm = SVC( probability=True, class_weight='balanced', tol=1e-3)
 
     # TODO - For class weights do the other way by a factor of ten
     #TODO make sure you're overfitting to SOZ 
@@ -1416,9 +1417,12 @@ def build_run_agg_classifier(inp_path, random_state=666,n_folds=5,filt_engel1='f
             continue
 
         label_count = Counter(y_train)
-        coeff = {"nz": 1, 'soz':label_count['soz']*10000, 'pz':label_count['pz']*100, }
+        #9000 for engelI #1.1 for full is best so far
+        coeff = {"nz": 2/(label_count['nz']), 'soz':1/label_count['soz'], 'pz':.1/label_count['pz'], }
+        # pdb.set_trace()
         class_weights = [coeff[label]/label_count[label] for label in y_train]
-        svm.class_weight_ = class_weights
+        svm = SVC( probability=True,class_weight=coeff, tol=1e-3)
+
 
         inner_cv = KFold(n_splits=2, shuffle=True, random_state=fold)
 
