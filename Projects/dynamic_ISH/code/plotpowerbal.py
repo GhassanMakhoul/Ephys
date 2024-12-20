@@ -322,7 +322,7 @@ def load_dfs(flow_fname, power_fname, ignore_uknown=True):
     
     return flow_df, power_df
 
-def calc_power_corr(merged_df, **kwargs):
+def calc_power_corr(merged_df, conn_val='z_pdc', **kwargs):
     """Calculate correlation between beta power and connectivity
 
     Args:
@@ -340,17 +340,16 @@ def calc_power_corr(merged_df, **kwargs):
     merged_df = merged_df[merged_df.target == 'soz']
     merged_df = merged_df[merged_df.freq_band =='alpha']
     corr_dict = defaultdict(lambda: [])
-
+    pdb.set_trace()
     for win, df in merged_df.groupby('win_label'):
         if win =='post-ictal':
-            susceptible_df = df[['win_sz_st_end','z_pdc','z_beta']].groupby('win_sz_st_end').mean().reset_index() #df[df.ever_involved ==True]
+            susceptible_df = df[['win_sz_st_end',conn_val,'z_beta']].groupby('win_sz_st_end').mean().reset_index() #df[df.ever_involved ==True]
             susceptible_df = susceptible_df[susceptible_df.win_sz_st_end <61]
         else:
-            susceptible_df = df[['win_sz_st_end','z_pdc','z_beta']].groupby('win_sz_st_end').mean().reset_index() #df[df.ever_involved ==True]
+            susceptible_df = df[['win_sz_st_end',conn_val,'z_beta']].groupby('win_sz_st_end').mean().reset_index() #df[df.ever_involved ==True]
         #adaptable_df = df[df.ever_involved ==False]
         # change for different pdc values
-
-        x_suscept, y_suscept = susceptible_df.z_beta, susceptible_df.z_pdc
+        x_suscept, y_suscept = susceptible_df.z_beta, susceptible_df[conn_val]
         #x_suscept, y_suscept = susceptible_df.z_beta, susceptible_df.value
         #pdb.set_trace()
         x_suscept = sms.add_constant(x_suscept)
@@ -427,7 +426,7 @@ def plot_conn_corr(merged_df, pltname, x='win_label', y='slope', hue='node_type'
         plot_scatter(merged_df, sig_inds , pltname, **kwargs)
     return
 
-def plot_rmcorr(merged_df, pltname, **kwargs):
+def plot_rmcorr(merged_df, pltname,conn_val='z_pdc', **kwargs):
         pltname = pltname.strip(".pdf")
         merged_df['win_label'] = merged_df.win_sz_st_end.apply(label_timestamp)
         merged_df = merged_df[merged_df.source == 'nz']
@@ -450,16 +449,16 @@ def plot_rmcorr(merged_df, pltname, **kwargs):
         # pdb.set_trace()
         for win in peri_ictal_df.win_label.unique():
             win_df = peri_ictal_df[peri_ictal_df.win_label == win]
-            fit = pg.rm_corr(data=win_df, x='z_beta', y='z_pdc', subject='patID')
+            fit = pg.rm_corr(data=win_df, x='z_beta', y=conn_val, subject='patID')
             pval = fit.pval.values[0]
             r = fit.r.values[0]
             if pval > .05/4:
-                ax = pg.plot_rm_corr(data=win_df, x='z_beta', y='z_pdc', subject='patID', \
+                ax = pg.plot_rm_corr(data=win_df, x='z_beta', y=conn_val, subject='patID', \
                                      kwargs_facetgrid=dict(height=4, aspect=1),
                                      legend=True, kwargs_line=dict(ls="solid", color='gray'),\
                                           kwargs_scatter=dict(color='gray'))
             else:
-                ax = pg.plot_rm_corr(data=win_df, x='z_beta', y='z_pdc', subject='patID', legend=True, \
+                ax = pg.plot_rm_corr(data=win_df, x='z_beta', y=conn_val, subject='patID', legend=True, \
                                      kwargs_facetgrid=dict(height=4, aspect=1))
 
       # get rid of spines on top and right (removes box appearance)

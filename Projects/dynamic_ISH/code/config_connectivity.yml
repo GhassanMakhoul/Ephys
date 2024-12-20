@@ -11,8 +11,8 @@ peri_para:
   dense_lw_lim : -10
   dense_up_lim : 20
   zscore: True
-  n_jobs : 2
-  filt_engel1 : 'engel2-4'
+  n_jobs : 20
+  filt_engel1 : 'Full'
   engel_subj : 'subj_list_engel1.csv'
 
 ei_bal:
@@ -24,10 +24,10 @@ plt_flow_power:
   num_cores: 1
   band: "beta"
   conn_band : "all" #possible bands: 'alpha', 'beta', 'theta', 'gamma_l', 'gamma_H'
-  pipeline: 'stats' #'plot' #"score_bips" #"merge" #plot #zscore_merge # plot #"zscore_merge" #plot # 
+  pipeline: "plot" #'stats' #'plot' #"score_bips" #"merge" #plot #zscore_merge # plot #"zscore_merge" #plot # 
   merged_fname : "merged_flow_pow_subsampFull_5win.csv" #'all_merged_HI3_54_centered_pow_freq.csv' #score_merged_anat.csv #'all_merged_z_flow_centered_pow_freq.csv'
   involvement : 'summary'
-  plot_type : 'joint_kde'
+  plot_type : 'corr'
   anatomical : False
   norm_szrs: False
   summarize : True
@@ -40,6 +40,7 @@ plt_flow_power:
     fill : True
     y : 'value'
     x : 'z_beta'
+    conn_val : 'value'
     plot_stats : True
    # hue : "region_involved"
   sz_types : []
