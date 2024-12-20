@@ -1,4 +1,11 @@
+*.logs
+*.log
+*.svg
+*.hdf5
 *.mat
+*.png
+*.txt
+*.asv
 *.code-workspace
 *.pdf
 /Code/input_files/*
