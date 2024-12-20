@@ -10,3 +10,5 @@
 *.pdf
 /Code/input_files/*
 *.csv
+*.pyc
+*.vscode
