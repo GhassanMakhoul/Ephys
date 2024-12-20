@@ -1,0 +1,16 @@
+INP_F = '/mnt/ernie_main/PCA_project/data/81_structs_with_dkregion_and_soz/pat_structs_with_dkregion_and_soz.mat';
+OUT_F = "/mnt_ernie_main/Ghassan/ephys/data/og_ISH.mat";
+
+STR_FIELDS = ["patID_clean" ];
+
+og_struct = load(INP_F);
+
+n_entries = max(size(og_struct.pats));
+
+for fname = STR_FIELDS
+    for i=1:n_entries
+        og_struct.pats(i).(fname) = convertStringsToChars(og_struct.pats(i).(fname));
+    end
+end
+
+save(OUT_F, "og_struct", '-.mat')
