@@ -1,0 +1,34 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Fri Sep 30 10:05:51 2022
+
+@author: kyleloizos
+"""
+
+import xipppy as xp
+from time import sleep
+
+def connectToProcessor():
+    # Close connection
+    xp._close()
+    sleep(0.001)
+    
+    # Connect to processor (Try UDP then TCP). 
+    try:
+        xp._open()
+    except:
+        try:
+            xp._open(use_tcp=True)
+        except:
+            print("Failed to connect to processor.")
+        else:
+            print("Connected over TCP")
+    else:
+        print("Connected over UDP")
+    
+    sleep(0.001)
+    
+if __name__ == '__main__':
+    connectToProcessor()
+    xp._close()
