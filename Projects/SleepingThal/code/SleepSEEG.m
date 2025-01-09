@@ -7,13 +7,13 @@ function [Summary,SleepStage]=SleepSEEG(FileList, patID)
     % set the patient ID so that we can adaptively get the channels used
     % spreadsheet
     % patID = "Spat36";
-    spreadsheet_root_dir = "/mnt/ernie_main/000_Data/SEEG/SEEG_EyesClosed_RestingState/";
+    spreadsheet_root_dir = "/mnt/ernie_main/000_Data/SEEG/SEEG_EyesClosed_RestingState/data/";
     subj_resting_state_dir = get_files_in_dir_linux(spreadsheet_root_dir, patID+"*", 1);
     
     if length(subj_resting_state_dir) ~= 1
         error("Unable to find resting state directory");
     else
-        spreadsheet_fpath = sprintf("%s\\%s_Channels_Used.xlsx", subj_resting_state_dir, patID);
+        spreadsheet_fpath = sprintf("%s/%s_Channels_Used.xlsx", subj_resting_state_dir, patID);
     end
 
  % [Summary,SleepStage]=SleepSEEG(FileList,ExtraFiles)
