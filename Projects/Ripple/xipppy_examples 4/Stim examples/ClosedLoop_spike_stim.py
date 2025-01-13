@@ -12,11 +12,18 @@ be modified as the user sees fit.
 
 Created on Fri Sep 30 10:20:27 2022
 
-@author: kyleloizos
+@author: kyleloizos & extended by GhassanMakhoul
 """
 
 import xipppy as xp
 from time import sleep
+import loguru as logger
+
+
+#Global variable for the length of time in a 
+# single clock cycle for ripple
+# default is 33.33 us (micro-seconds)
+CLOCK_CYCLE = 33.33
 
 def connectToProcessor():
     # Close connection
@@ -37,6 +44,21 @@ def connectToProcessor():
         print("Connected over UDP")
     
     sleep(0.001)
+
+def get_pulse_with(pw:int, tol=1e-3)->int:
+    """Given a desired pulse width, returns
+    the actual integer to pass into stim_res
+
+    Args:
+        pw (int): desired pulse width for a single phase of stim sequence
+        tol (float): tolerance for discrepancy between desired pulse width and actual
+    Returns:
+        int: whole number of clock cycles to specify for stim res
+    """
+    pw_cycles = int(pw/CLOCK_CYCLE)
+    if pw_cycles < pw/CLOCK_CYCLE - tol:
+        logger.warning(f"Desired pulse width is slightly inaccurate: {pw_cycles*CLOCK_CYCLE} vs actual {pw}")
+    return pw_cycles
     
 def stimWaveform(stim_channel, pulse_width, stim_mag_steps, stim_res):
     # stim_channel = channel # to send stimulus to
