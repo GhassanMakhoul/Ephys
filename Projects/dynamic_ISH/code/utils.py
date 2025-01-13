@@ -16,6 +16,10 @@ from scipy.stats import f_oneway, ttest_ind
 from collections import Counter
 np.random.seed(10555)
 #specialty
+"""Originally coded during the dynamic ISH project. Should continue updating and reusing over all projects in the Ephys repository
+Author: Ghassan S. Makhoul 
+Last modified: 1/10/2025
+"""
 
 #GLOBAL Variables
 BANDS = ['delta', 'theta','alpha', 'beta', 'gamma_low','gamma_high']
