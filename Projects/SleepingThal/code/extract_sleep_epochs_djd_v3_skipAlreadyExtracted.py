@@ -25,21 +25,21 @@ from joblib import Parallel, delayed
 
 import traceback
 
-data_from_root = "Z:/000_Data/SEEG/SEEG_Entire_EMU_Downloads/data/"
+data_from_root = "/mnt/ernie_main/000_Data/SEEG/SEEG_Entire_EMU_Downloads/data/"
 
 # save root
-save_root = "Z:/000_Data/SEEG/SEEG_Periictal/data/Extracted_Per_Event_Interictal/"
+save_root = "/mnt/ernie_main/000_Data/SEEG/SEEG_Periictal/data/Extracted_Per_Event_Interictal/"
 
-csv_file_path = "Z:/000_Data/SEEG/SEEG_Periictal/data/Extracted_Per_Event_Interictal/all_time_data_01092023_112957.csv"
+csv_file_path = "/mnt/ernie_main/000_Data/SEEG/SEEG_Periictal/data/Extracted_Per_Event_Interictal/all_time_data_01092023_112957.csv"
 
-ictal_sheet_fpath = "Z:/000_Data/SEEG/SEEG_Periictal/notes/Master_Ictal_Event_Timestamps_SeizureType_SOZ_PZ_batch3_preprocessing_pats.xlsx"
+ictal_sheet_fpath = "/mnt/ernie_main/000_Data/SEEG/SEEG_Periictal/notes/Master_Ictal_Event_Timestamps_SeizureType_SOZ_PZ_batch3_preprocessing_pats.xlsx"
 
-patient_batch_sheet = "Z:/000_Data/SEEG/SEEG_Periictal/notes/all_preprocessing_pats.xlsx"
+patient_batch_sheet = "/mnt/ernie_main/000_Data/SEEG/SEEG_Periictal/notes/all_preprocessing_pats.xlsx"
 
 all_time_df = pd.read_csv(csv_file_path,sep='\t')
 
-sleep_epoch_dir = "Z:/000_Data/SEEG/SEEG_Sleep_Staging/data/extracted_sleep_epochs_v2/"
-nights_of_sleep_dir = "Z:/000_Data/SEEG/SEEG_Sleep_Staging/data/nights_of_sleep/"
+sleep_epoch_dir = "/mnt/ernie_main/000_Data/SEEG/SEEG_Sleep_Staging/data/extracted_sleep_epochs_v2/"
+nights_of_sleep_dir = "/mnt/ernie_main/000_Data/SEEG/SEEG_Sleep_Staging/data/nights_of_sleep/"
 
 # sleep categories that I definitely want. N1 is a bit buggy, so it's not completely necessary
 confident_sleep_categories = ["R", "W", "N2", "N3"]
@@ -93,7 +93,7 @@ for i in range(len(pat_nights_of_sleep_dirs)):
         
         
 
-clean_sleep_df = pd.read_csv("Z:/000_Data/SEEG/SEEG_Sleep_Staging/notes/cleaned_sleep_times_06122023.csv",
+clean_sleep_df = pd.read_csv("/mnt/ernie_main/000_Data/SEEG/SEEG_Sleep_Staging/notes/cleaned_sleep_times_06122023.csv",
                              delimiter="\t")
 
 sleep_categories = ["R", "W", "N1", "N2", "N3"]
@@ -230,7 +230,7 @@ def write_mat_files(start_datetime, stop_datetime, edf_file, info, channel_names
         append_error_to_master_error(error_data_path)
 
 def write_edf_data_from_times(pat_id, start_datetime, stop_datetime, dst_folder, save_fname, event_num, sz_type): 
-    data_from_root = "Z:/000_Data/SEEG/SEEG_Entire_EMU_Downloads/data/"
+    data_from_root = "/mnt/ernie_main/000_Data/SEEG/SEEG_Entire_EMU_Downloads/data/"
     csv_list = glob.glob(data_from_root+pat_id+"/"+pat_id+"*.csv")
     # edf_list = csv_list.upper().replace("\\","/").replace(".CSV",".EDF")
     edf_list = [s.upper().replace("\\","/").replace(".CSV",".EDF") for s in csv_list]
@@ -317,7 +317,7 @@ def remove_windows_with_zeros(sorted_indexes, startTimes, interictal_timedelta, 
     #   success_code
     #   best_index -> index (from sorted indexes) that is the best
     
-    data_from_root = "Z:/000_Data/SEEG/SEEG_Entire_EMU_Downloads/data/"
+    data_from_root = "/mnt/ernie_main/000_Data/SEEG/SEEG_Entire_EMU_Downloads/data/"
     
     file_idx_without_zeros = -1
     
@@ -379,7 +379,7 @@ def remove_windows_with_zeros(sorted_indexes, startTimes, interictal_timedelta, 
         
 
 def write_edf_data_from_times_sleep_epochs(pat_id, start_datetime, stop_datetime, dst_folder, save_fname):
-    data_from_root = "Z:/000_Data/SEEG/SEEG_Entire_EMU_Downloads/data/"
+    data_from_root = "/mnt/ernie_main/000_Data/SEEG/SEEG_Entire_EMU_Downloads/data/"
     csv_list = glob.glob(data_from_root+pat_id+"/"+pat_id+"*.csv")
     
     edf_list = [s.upper().replace("\\","/").replace(".CSV",".EDF") for s in csv_list]
@@ -513,4 +513,4 @@ for n in range(len(pat_names)):
                 break
     # except:
     #     print('skipping')
-            
+    
