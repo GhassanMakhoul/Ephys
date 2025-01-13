@@ -36,11 +36,20 @@ def connectToProcessor():
     sleep(0.001)
     
 def stimWaveform(stim_channel, pulse_width, stim_mag_steps, stim_res):
-    # stim_channel = channel # to send stimulus to
-    # pulse_width = width of each phase (units of clock cycles)
-    # magnitude = magnitude of stim pulse (units of steps
-    # stim_res = index of resolution of stim desired 
-    #    (e.g.for nano, 1=1uA/step, 2=2uA/step, 3=5uA/step, 4=10uA/step, 5=20uA/step)
+    """creates a stim waveworm throught the xp.StimSegment function.
+    This will progressively build up the waveform by defining both phases
+    the interphase intervale, the amplitude and the pulsewidth. 
+
+    Args:
+        stim_channel (int): should be a channgel number 
+        pulse_width (int): pulse width in clock cycles
+        stim_mag_steps (int): magnitude steps of stim
+        stim_res (int): index of resolution of stim desired     
+            #    (e.g.for nano, 1=1uA/step, 2=2uA/step, 3=5uA/step, 4=10uA/step, 5=20uA/step)
+    Returns:
+        xp.StimSeq: stimulation sequence
+    """
+
 
     xp.stim_enable_set(False)
     sleep(0.001)
