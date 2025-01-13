@@ -12,8 +12,13 @@ Created on Wed Nov 11 2022
 @author: kyleloizos
 """
 
+CLOCK_CYCLE = 33.33 #us (microseconds)
+
 import xipppy as xp
 from time import sleep
+from loguru import logger 
+
+logger.add("../logs/ripple_test.log")
 
 def connectToProcessor():
     # Close connection
@@ -32,11 +37,52 @@ def connectToProcessor():
             print("Connected over TCP")
     else:
         print("Connected over UDP")
-    
     sleep(0.001)
     
+
+def get_cycles_from_t(t, tol=1e-3):
+    """Given a time length, returns how many clock cycles it corresponds with
+    If there is a larger difference between expected time and clock_cycles capability
+    will raise a warning
+
+    Args:
+        t (_type_): length in micro-seconds of desired time
+    
+    Returns:
+        c_t (int) : clock cycles corresponding to amount of time
+    """
+    c_t = int(t/CLOCK_CYCLE)
+    if c_t*CLOCK_CYCLE < t - tol:
+        logger.warning(f"Desired time {t} but actual {c_t*CLOCK_CYCLE}")
+    return c_t
+
+def get_ma(ma_desired, stim_res=4):
+    """Given a target amplitdue, returns the proper amount of sim_mag_steps
+    For example, imagine you want to program 3mA of stim:
+        - 3mA is equivalent to 3000 ua (microamps)
+        - If using stim_res 4 then each step is 10uA
+        - thus 3(mA) * 1000/1(uA/mA) *1/10(steps/uA) = 300 steps
+    """  
+
+    if stim_res == 1:
+        #1uA/Step
+        return ma_desired*1000
+    if stim_res == 2:
+        #2uA/step
+        return ma_desired*500
+    if stim_res == 3:
+        # 5uA/step
+        return ma_desired*200
+    if stim_res == 4:
+        # 10uA/step
+        return ma_desired*100
+    if stim_res == 5:
+        #20uA/step
+        return ma_desired*50
+    
+
 def stimWaveform(stim_channel, pulse_width, stim_mag_steps, stim_res):
-    """creates a stim waveworm throught the xp.StimSegment function.
+    """creates a stim waveworm through the xp.StimSegment function.
     This will progressively build up the waveform by defining both phases
     the interphase intervale, the amplitude and the pulsewidth. 
 
@@ -64,18 +110,21 @@ def stimWaveform(stim_channel, pulse_width, stim_mag_steps, stim_res):
     ipi = xp.StimSegment(round(pulse_width/2),0,1, enable=False) 
     nseg = xp.StimSegment(pulse_width,stim_mag_steps,1) 
     seq0 = xp.StimSeq(stim_channel, 1000,1,pseg,ipi,nseg)
-        
+    #TODO return stim length in real time to determine proper freq and duty cycle
     return seq0
 
-def sendStim(max_stim_count):
+def sendStim(stim_params, max_stim_count):
     
     # Define stimulation waveform
-    stim_waveform = stimWaveform(stim_channel=1,pulse_width=200,stim_mag_steps=50,stim_res=4)
+    pw = get_cycles_from_t(stim_params['pw'])
+    stim_mag = get_ma(stim_params['amplitude_ma'])
+    stim_res = stim_params['stim_res']
+    stim_waveform = stimWaveform(stim_channel=stim_params['ch'],pulse_width=pw,stim_mag_steps=stim_mag,stim_res=4)
     stim_count = 0
     
     # Stimulate every second until maximum stim count is reached
     while stim_count < max_stim_count:
-        sleep(0.1)
+        sleep(0.1) #TODO compute the actual needed time to sleep to achieve 1hz
         xp.StimSeq.send(stim_waveform)
         stim_count = stim_count + 1
         print("Spike count: ", stim_count, "out of ", max_stim_count)
@@ -83,5 +132,10 @@ def sendStim(max_stim_count):
     
 if __name__ == '__main__':
     connectToProcessor()
-    sendStim(20)
+    stim_params = {}
+    stim_params['stim_res'] = 4
+    stim_params['amplitude_ma'] = 1
+    stim_params['pw'] = 300
+    stim_params['ch'] = 3
+    sendStim(stim_params, 10)
     xp._close()
