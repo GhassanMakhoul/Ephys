@@ -9,7 +9,7 @@ be modified as the user sees fit.
 
 Created on Wed Nov 11 2022
 
-@author: kyleloizos
+@author: kyleloizos, GhassanMakhoul (extended)
 """
 
 CLOCK_CYCLE = 33.33 #us (microseconds)
@@ -81,17 +81,21 @@ def get_ma(ma_desired, stim_res=4):
         return ma_desired*50
     
 
-def stimWaveform(stim_channel, pulse_width, stim_mag_steps, stim_res):
+def stimWaveform(stim_channel, pulse_width, stim_mag_steps, stim_res,stim_timing="bipolar", pole='cathode'):
     """creates a stim waveworm through the xp.StimSegment function.
     This will progressively build up the waveform by defining both phases
     the interphase intervale, the amplitude and the pulsewidth. 
 
     Args:
-        stim_channel (int): should be a channgel number 
+        stim_channel (list[int]): should be a list of channel numbers, 
         pulse_width (int): pulse width in clock cycles
         stim_mag_steps (int): magnitude steps of stim
         stim_res (int): index of resolution of stim desired     
             #    (e.g.for nano, 1=1uA/step, 2=2uA/step, 3=5uA/step, 4=10uA/step, 5=20uA/step)
+        stim_timing (defult: 'bipolar'): setting this value will determine if stim_channel list is to be used as a 
+        bipolar stim specifier (cathode, anode) or if 'simultaneous' will stimulate all specified electrodes as per 'pole'
+        pole (str, defulat: 'cathode'): specifies how to construct first in stim_channel (cathode, anode) vs (anode, cathode). If 'stim_timing is
+        selected to be simulataneous then all channels will be simultaneously stimulated with setting of 'pole'
     Returns:
         xp.StimSeq: stimulation sequence
     """
