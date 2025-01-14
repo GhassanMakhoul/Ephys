@@ -1,0 +1,4 @@
+pdc:
+  n_trials : 4
+  win_duration : 5
+  stride : -1
