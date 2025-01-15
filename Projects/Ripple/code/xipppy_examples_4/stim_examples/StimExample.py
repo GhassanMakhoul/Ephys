@@ -112,6 +112,7 @@ def load_stim_protocol(protocol_f):
         stim_df['cathode'] = stim_df.bipole.str.split('-').str[0]
         stim_df['anode'] = stim_df.bipole.str.split('-').str[1]
     if not safety_check(stim_df):
+        logger.warning("Failed Safety Check")
         xp._close()
         return ""
     return stim_df
@@ -122,7 +123,7 @@ def safety_check(stim_df):
     Args:
         stim_df (pd.DataFrame): a properly formattted stim_df
     """
-    if any(stim_df.amplitude < MAX_STIM):
+    if any(stim_df.amplitude > MAX_STIM):
         logger.error(f"Max stim exceeded {MAX_STIM} check stim protocol!")
         return False
     return True
@@ -261,6 +262,7 @@ def sendStim(stim_params, max_stim_count=10000):
 def stim_region( region, stim_df, inter_stim_interval=5):
     """Stimulates a region in the stimulation dataframe"""
     stim_params = {}
+    
     region_df = stim_df[stim_df['region'] == region]
     count = 0
     for index, row in region_df.iterrows():
