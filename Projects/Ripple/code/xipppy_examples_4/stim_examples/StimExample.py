@@ -14,6 +14,9 @@ Created on Wed Nov 11 2022
 
 CLOCK_CYCLE = 33.33 #us (microseconds)
 
+#mac stim for now is 3mA
+MAX_STIM = 3
+
 from multiprocessing import Value
 import threading
 import xipppy as xp
@@ -108,8 +111,21 @@ def load_stim_protocol(protocol_f):
     if 'bipole' in stim_df.columns:
         stim_df['cathode'] = stim_df.bipole.str.split('-').str[0]
         stim_df['anode'] = stim_df.bipole.str.split('-').str[1]
+    if not safety_check(stim_df):
+        xp._close()
+        return ""
     return stim_df
 
+def safety_check(stim_df):
+    """check sitm parameters for safety
+    TODO: add charge density safety and consult a stim_devlivered log
+    Args:
+        stim_df (pd.DataFrame): a properly formattted stim_df
+    """
+    if any(stim_df.amplitude < MAX_STIM):
+        logger.error(f"Max stim exceeded {MAX_STIM} check stim protocol!")
+        return False
+    return True
 
 def get_cycles_from_t(t, tol=1e-3):
     """Given a time length, returns how many clock cycles it corresponds with
