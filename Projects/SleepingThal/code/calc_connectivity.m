@@ -34,19 +34,25 @@ function [] = calc_connectivity(subj, inp_f, out_dir,metric, shuffle, trial_len,
     addpath('shared_toolboxes/edfRead')
     BANDS = ["delta"; "theta"; "alpha"; "beta"; "gamma_low";"gamma_high" ];
 
-    [hdr, record] = edfread(inp_f);
-    seeg_tt = array2timetable(record', 'SampleRate', 512, 'VariableNames', hdr.label);
+
+    % [hdr, record] = edfread(inp_f); for now let's just read from .mat files and get out of EDF ASAP
+    bip_data = load(inp_f);
+    filt_data = bip_data.filt_data;
+    [n_ch, n_samps] = size(filt_data);
+    TT = array2timetable(filt_data', 'SampleRate', bip_data.sampling_freq, 'VariableNames', bip_data.bip_montage_label);
     %save edf visualization (good to sanity check for any artifacts) 
     f = figure('Position', [0,0,1000,10000]);          
-    tiledlayout(85,1);
+    tiledlayout(n_ch,1);
 
-    for i=1:85                              
+    for i=1:n_ch             
         nexttile                                
-        plot(TT.Time, record(i,:))              
-        ylabel(hdr.label{i})                    
-    end                                     
-    saveas(f, sprintf("%s/%s_stacked_plot.png", viz_path,inp_f))          
+        plot(TT.Time, filt_data(i,:))              
+        ylabel(bip_data.bip_montage_label{i})                    
+    end
+    [~,fname,~] = fileparts(inp_f);
 
+    saveas(f, sprintf("%s/%s_stacked_plot.png", "../viz/pdc_calculations",fname))          
+    disp(sprintf("Saved %s SEEG trace for chunk %s", subj, fname));
     connectivity = struct;
     if strcmp(metric, 'pdc')
         %calc PDC connectivity
@@ -59,7 +65,7 @@ function [] = calc_connectivity(subj, inp_f, out_dir,metric, shuffle, trial_len,
         % Increase overall figure size
     
         set(gcf, 'Position', [1, 1, 5000, 5000]); % [x, y, width, height]
-        saveas(gcf, sprintf('%s/%s_Full_PDC.png',viz, subj))
+        saveas(gcf, sprintf('%s/%s_Full_PDC.png','../viz/pdc_calculations', subj))
         % Summarize connectivity
         %TODO modularize
         pdc = mpdc;
@@ -72,7 +78,7 @@ function [] = calc_connectivity(subj, inp_f, out_dir,metric, shuffle, trial_len,
             imagesc(conn_mat)
             title(sprintf("%s Power", BANDS(n)))
             colorbar
-            saveas(gcf, sprintf('%s/%s_%s_PDC_summary.png', viz_path , inp_f, band))
+            saveas(gcf, sprintf('%s/%s_%s_PDC_summary.png', '../viz/pdc_calculations' , fname, band))
         end
     end
 
@@ -81,8 +87,7 @@ function [] = calc_connectivity(subj, inp_f, out_dir,metric, shuffle, trial_len,
     % that way I can append to a struct if it exists
     % and I can also add more connectivity measures
     % 
-    save(sprint("%s/%s_connectivity.mat", out_dir, inp_f), "connectivity")
-    disp(out_f)
+    save(sprintf("%s/%s_connectivity.mat", out_dir, fname), "connectivity")
     exit; 
     %%
 end

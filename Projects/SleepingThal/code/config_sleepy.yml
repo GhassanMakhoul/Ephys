@@ -1,7 +1,7 @@
 connectivity:
   metric : 'pdc'
-  null_model : 0
+  shuffle : 0
   n_trials : 4
   win_duration : 5
   stride : -1
-  viz_path : '../viz/pdc_calculations'
+  viz_path : "../viz/pdc_calculations/"
