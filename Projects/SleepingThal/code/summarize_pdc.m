@@ -8,6 +8,18 @@ function [D,T,A,B,G_low,G_high] = summarize_pdc(pdc, method)
     %           NOTE: this feature is under development and may
     %                   need some fine-tuning. Expect sparse connectivity
     if strcmp(method, 'mean') 
+
+
+        
+            delta = [1 3];
+            BANDS_TO_ANALYZE = delta;
+            idx = find(pdc.freq >= BANDS_TO_ANALYZE(1) & pdc.freq <= BANDS_TO_ANALYZE(2));
+            D = squeeze(mean(pdc.pdcspctrm(:,:,idx),3));
+            q = size(D,1);                                %number of nodes
+            D(1:q+1:end)= nan;                          %replace diagonal with NaNs
+
+
+
            theta = [4 8];
             BANDS_TO_ANALYZE = theta;
             idx = find(pdc.freq >= BANDS_TO_ANALYZE(1) & pdc.freq <= BANDS_TO_ANALYZE(2));

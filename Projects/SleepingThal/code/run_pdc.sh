@@ -25,7 +25,7 @@ while read -r subj; do
         f_name="$(basename $f_path)"
         echo $f_path
         echo $viz_path
-        /usr/local/MATLAB/R2024a/bin/matlab -nodisplay -nosplash -nodesktop -r \
+        echo /usr/local/MATLAB/R2024a/bin/matlab -nodisplay -nosplash -nodesktop -r \
         "calc_connectivity('$subj', '$f_path','$OUT_DIR/$subj/','$metric','$shuffle', '$win_duration', '$n_trials', '$viz_path')"
        echo OUT DIR: $OUT_DIR/$subj/$f_name
        echo 
