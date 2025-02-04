@@ -6,26 +6,32 @@ function [mpdc] = calc_pdc(inp_f, shuffle, trial_len, ntrials)
     %%%%%
     %adding path to repo's fieldtrip
     tic
-    addpath('/home/ghassan/Documents/Research/Ephys/Projects/SleepingThal/code/shared_toolboxes/fieldtrip-20190819/');
+    addpath('/home/ghassan/Documents/Research/Ephys/Code/fieldtrip-master/');
     %fieldtrip expects chars use single ' quotes
-    
+    data = load(inp_f);
     % Define 5-second trials
+    ft_data.label = cellstr(data.bip_montage_label);       % cell-array containing strings, Nchan*1
+    ft_data.fsample = data.sampling_freq;   % sampling frequency in Hz, single number
+    ft_data.trial{1,1} = data.filt_data; % cell-array containing a data matrix for each trial (1*Ntrial), each data matrix is a Nchan*Nsamples matrix
+    ft_data.time{1,1} = (0:size(data.filt_data,2)-1)/ft_data.fsample;      % cell-array containing a time axis for each trial (1*Ntrial), each time axis is a 1*Nsamples vector
+    ft_data.nSamples = size(data.filt_data,2);
+    
     cfg = [];
-    cfg.dataset = inp_f;
-    cfg.trialfun = 'ft_trialfun_general'; % Use the general trial function
-    cfg.trialdef.triallength = trial_len; % Trial length in seconds
-    cfg.trialdef.ntrials = ntrials;
-    % cfg.trialdef.overlap=4; % No overlap between trials (optional)
-    cfg = ft_definetrial(cfg);
-    % Preprocess the data with the defined trials
-    data = ft_preprocessing(cfg);
+    cfg.continuous   = 'yes';
+    [ft_data_preprocessed] = ft_preprocessing(cfg, ft_data);
+    
+    cfg = [];
+    cfg.length = trial_len;
+    data_segmented = ft_redefinetrial(cfg, ft_data_preprocessed);
+ 
 
-    nnodes = length(data.label);
-    ttimepoints = data.fsample*cfg.trialdef.triallength;
+    nnodes = length(ft_data.label);
+    ttimepoints = ft_data.fsample*trial_len;
     % this should really get its own script too. 
     % TODO get to the bottom of this damn null modeling business
-    if shuffle
-        mshuff = cfg.trialdef.ntrials;
+    disp(shuffle)
+    if strcmp(shuffle, '1')
+        mshuff = ntrials;
         %shuffling on first trial only
         shuff_trial = zeros(ttimepoints,nnodes,mshuff);
         X = data.trial{1}';
@@ -37,17 +43,16 @@ function [mpdc] = calc_pdc(inp_f, shuffle, trial_len, ntrials)
         % check if odd in future
         disp("Shuffled trials")
         for n=1:cfg.trialdef.ntrials
-            data.trial{n} = shuff_trial(:,:,n)';
+            ft_data.trial{n} = shuff_trial(:,:,n)';
         end
     end
-    disp(data)
     
     %get MVAR fit (assuming it's 5)
     cfg = [];
     cfg.order = 5;
     cfg.method = 'bsmart';
     %feeding in data from above simulation
-    mdata = ft_mvaranalysis(cfg, data);
+    mdata = ft_mvaranalysis(cfg, data_segmented);
     mdata.coeffs;
 
     %% computing the parametric spectral transfer matrix
@@ -63,5 +68,6 @@ function [mpdc] = calc_pdc(inp_f, shuffle, trial_len, ntrials)
 
     disp("called PDC")
     toc
+    %TODO save out PDC files 
 %%
 end
