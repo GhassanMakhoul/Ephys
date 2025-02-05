@@ -13,6 +13,8 @@ viz_path=$(cat $CONFIG | shyaml get-value connectivity.viz_path)
 win_duration=$(cat $CONFIG | shyaml get-value connectivity.win_duration)
 shuffle=$(cat $CONFIG | shyaml get-value connectivity.shuffle)
 metric=$(cat $CONFIG | shyaml get-value connectivity.metric)
+agg=$(cat $CONFIG | shyaml get-value connectivity.agg)
+
 while read -r subj; do 
     echo $subj
     ##Test to make sure directory exists before running
@@ -25,8 +27,8 @@ while read -r subj; do
         f_name="$(basename $f_path)"
         echo $f_path
         echo $viz_path
-        echo /usr/local/MATLAB/R2024a/bin/matlab -nodisplay -nosplash -nodesktop -r \
-        "calc_connectivity('$subj', '$f_path','$OUT_DIR/$subj/','$metric','$shuffle', '$win_duration', '$n_trials', '$viz_path')"
+        /usr/local/MATLAB/R2024a/bin/matlab -nodisplay -nosplash -nodesktop -r \
+        "calc_connectivity('$subj', '$f_path','$OUT_DIR/$subj/','$metric','$shuffle', '$win_duration', '$n_trials', '$agg', '$viz_path')"
        echo OUT DIR: $OUT_DIR/$subj/$f_name
        echo 
        break

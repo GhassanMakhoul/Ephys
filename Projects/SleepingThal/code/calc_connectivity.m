@@ -1,4 +1,5 @@
-function [] = calc_connectivity(subj, inp_f, out_dir,metric, shuffle, trial_len, ntrials, summary,viz_path)
+function [output] = calc_connectivity(subj, inp_f, out_dir,metric, shuffle, trial_len, ntrials, summary,viz_path)
+    
     %% This script is now becoming the main operating script for our pipeline
     %% With this script, we should be able to specify a directory of input files
     %% and calculate PDC for them. 
@@ -29,11 +30,12 @@ function [] = calc_connectivity(subj, inp_f, out_dir,metric, shuffle, trial_len,
     % -----In Future update------
     %   May add: RMS, PWELCH, CROSS Spectral Connectivity?
     % NOTE: to play nice with python we will be using chars. 
+    % tst_file = /mnt/ernie_main/000_Data/SEEG/SEEG_Sleep_Staging/data/extracted_sleep_epochs_v2//Spat34/Spat34_N2_POD1.mat
     %%%%%
     %global vars
-    addpath('shared_toolboxes/edfRead')
+    addpath('/home/ghassan/Documents/Research/Ephys/Projects/SleepingThal/code/shared_toolboxes/edfRead')
     BANDS = ["delta"; "theta"; "alpha"; "beta"; "gamma_low";"gamma_high" ];
-
+    disp(trial_len)
 
     % [hdr, record] = edfread(inp_f); for now let's just read from .mat files and get out of EDF ASAP
     bip_data = load(inp_f);
@@ -53,9 +55,10 @@ function [] = calc_connectivity(subj, inp_f, out_dir,metric, shuffle, trial_len,
 
     saveas(f, sprintf("%s/%s_stacked_plot.png", "../viz/pdc_calculations",fname))          
     disp(sprintf("Saved %s SEEG trace for chunk %s", subj, fname));
-    connectivity = struct;
+    output = struct;
     if strcmp(metric, 'pdc')
         %calc PDC connectivity
+
         mpdc = calc_pdc(inp_f, shuffle, trial_len, ntrials);
         %plot full PDC connectivity
         cfg           = [];
@@ -65,28 +68,58 @@ function [] = calc_connectivity(subj, inp_f, out_dir,metric, shuffle, trial_len,
         % Increase overall figure size
     
         set(gcf, 'Position', [1, 1, 5000, 5000]); % [x, y, width, height]
-        saveas(gcf, sprintf('%s/%s_Full_PDC.png','../viz/pdc_calculations', subj))
+        saveas(gcf, sprintf('%s/%s_Full_PDC.png',viz_path, subj))
         % Summarize connectivity
         %TODO modularize
         pdc = mpdc;
-        banded_pdc = summarize_pdc(pdc, summary);
+        [D, T, A, B, G_low, G_high] = summarize_pdc(pdc, summary);
         %
+        banded_pdc = {D, T, A, B, G_low, G_high};
         for n=1:length(BANDS)
             % save out summary of bands connectivity
-            conn_mat = banded_pdc(n);
-            figure
+            conn_mat = banded_pdc{n};
+            close all; figure
             imagesc(conn_mat)
             title(sprintf("%s Power", BANDS(n)))
             colorbar
-            saveas(gcf, sprintf('%s/%s_%s_PDC_summary.png', '../viz/pdc_calculations' , fname, band))
+            saveas(gcf, sprintf('%s/%s_%s_PDC_summary.png', viz_path , fname, BANDS(n)))
+            
         end
     end
+
 
     %% save output struct 
     % may want to consider making this modular and giving it its own script file
     % that way I can append to a struct if it exists
     % and I can also add more connectivity measures
+    %save raw data
+    output.raw_data = bip_data.filt_data;
+    output.sampling_freq = bip_data.sampling_freq;
+    output.dk_atlas_label = convertStringsToChars(bip_data.bip_montage_region);
+    output.bip_montage_region =convertStringsToChars(bip_data.bip_montage_label); 
+    % save pdc
     % 
+    output.pdc = pdc;
+    % save wavelet decomp
+    wvlt_cfg = [];
+    wvlt_cfg.output = 'fooof';
+    wvlt_cfg.taper = 'dpss';
+    wvlt_cfg.tampsofrq = 1;
+    wvlt_cfg.method = 'mtmfft';
+    %may change in future
+    wvlt_cfg.foi = 1:128;
+    output.freq_analysis_full = calc_wavelet(inp_f, wvlt_cfg);
+    
+    wvlt_cfg = [];
+    wvlt_cfg.output = 'fooof';
+    wvlt_cfg.taper = 'dpss';
+    wvlt_cfg.tampsofrq = 1;
+    wvlt_cfg.method = 'mtmfft';
+    %may change in future
+    wvlt_cfg.foi = 1:128;
+    output.freq_analysis_foof = calc_wavelet(inp_f, wvlt_cfg);
+
+    
     save(sprintf("%s/%s_connectivity.mat", out_dir, fname), "connectivity")
     exit; 
     %%
