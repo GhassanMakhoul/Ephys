@@ -6,11 +6,21 @@ data. In addition, the computer terminal will print out the calculated
 Voltage RMS of various frequency bands (Full: 0.3 Hz - 7500 Hz, LFP: 1 Hz 
 - 250 Hz, Spike: 250 Hz - 7500 Hz) every 3.333 seconds.
 
+This is a script that takes live streams of SEEG data and runs inference
+on a brain state embedding model on the SEEG data.
+1. First uses digital notch filters for SEEG data
+2. Feeds data into histogram normalization pipeline
+3. Runs hist norm data through GPU and performs inference on model
+4. Generates an embedding then feeds embedding of last 5s of data into pacmap-> generates an embedding
+5. plots this embedding relative to a preplotted 100 point plot 
+
 Created on November 2024 
 
-@author: richard
+@author: richard liu
+@author: Ghassan Makhoul (build on initial live_periodogram example code)
 """
 
+import ipdb
 import time
 from time import sleep
 import numpy as np
@@ -20,17 +30,20 @@ import sys
 from scipy.fft import fft, next_fast_len
 from scipy.integrate import trapezoid
 import matplotlib
+from matplotlib.colors import LinearSegmentedColormap
+
 
 # Explicitly set the backend to TkAgg, avoid conflict with PyQT6
 matplotlib.use('TkAgg')
-
+colors = [[0,0,1,0],[0,0,1,0.5],[0,0.2,0.4,1]]
+cmap = LinearSegmentedColormap.from_list("", colors)
 
 class LiveStreamPeriodogram:
     """
     This class sets up and displays a livestream of acquired data and its live periodogram.
     """
 
-    def __init__(self, display_s=5, window_ms=5000, stream_ch=0, stream_ty='raw'):
+    def __init__(self, display_s=5, window_ms=5000, stream_ch=0, stream_ty='hi-res'):
         """
         Initialization function for setting up the LiveStreamPeriodogram class.
 
@@ -64,7 +77,7 @@ class LiveStreamPeriodogram:
 
         # Setup plots for live signal and live periodogram subplots
         self.psd_plot, self.ax_sig, self.ax_psd, \
-            self.h_sig, self.h_psd = self.setup_plots()
+            self.h_sig, self.h_psd, self.intensity = self.setup_plots()
 
     def connect_to_processor(self):
         """
@@ -109,7 +122,7 @@ class LiveStreamPeriodogram:
             samp_freq = 30000
         elif self.stream_ty == 'lfp':
             samp_freq = 1000
-        elif self.stream_ty == 'hires':
+        elif self.stream_ty == 'hi-res':
             samp_freq = 2000
         elif self.stream_ty == 'hifreq':
             samp_freq = 7500
@@ -169,12 +182,24 @@ class LiveStreamPeriodogram:
             h_sig: Line2D object for the signal plot data
             h_psd: Line2D object for the periodogram plot data
         """
+        # plot hour of data ahead of time and buffer period
+        # then update only the last hour 
+        # can PacMAP be meaningful enough to see us go into the preictal funnel
+        # perfect world: ghoast of last hour, so the most recent points are darkest
+        # flow of data: filter -> hist_eq -> run through model -> PacMAP model -> update in FIFO manner with last 10 minutes-hour as 
+        # static plot
+        # saving all data to a cold storage archive 
+        # code should update buffer and a masterfile
+        # don't need to replot the same background points 
+        # generate a numpy random array (-5 +5 on all axes, and incorporate time stamps for seizures appropriately)
         x_sig = np.zeros(self.n_sig)  # Signal Buffer for initialization
         x_psd = np.zeros(len(self.f_psd))  # Periodogram Buffer for initialization
-
+        
         psd_plot, (ax_sig, ax_psd) = plt.subplots(2, 1)
-        h_sig, = ax_sig.plot(self.t_sig, x_sig, 'b', linewidth=0.5)  # Signal plot
-        ax_sig.set_xlim(self.t_sig[0], self.t_sig[-1])
+        # ipdb.set_trace()
+        h_sig = ax_sig.scatter(self.t_sig, x_sig, c=[], cmap=cmap, vmin=0, vmax=1)  # Signal plot
+        ax_sig.set_xlim(-2,2)
+        ax_sig.set_ylim(-2,2)
         ax_sig.set_title(f'Channel #{self.stream_ch}, {self.stream_ty}')
         ax_sig.set_xlabel('Time (s)')
         ax_sig.set_ylabel('μV')
@@ -187,8 +212,9 @@ class LiveStreamPeriodogram:
         ax_psd.set_ylabel('Power Spectrum (dB/Hz)')
 
         plt.subplots_adjust(hspace=0.4)
+        intensity = []
 
-        return psd_plot, ax_sig, ax_psd, h_sig, h_psd
+        return psd_plot, ax_sig, ax_psd, h_sig, h_psd, intensity
 
     def live_data_loop(self):
         """
@@ -199,8 +225,12 @@ class LiveStreamPeriodogram:
         t0 = xp.time()
         t2 = xp.time()
 
+        x_og= np.random.random_sample(size=int(100))
+        y_og= np.random.random_sample(size=int(100))
+
         # While plot is open, continue live plotting data
         while plt.fignum_exists(self.psd_plot.number):
+            plt.ion()
             t1 = xp.time()
             # If time since last loop is greater than 1/30 seconds, update loop
             # (Frame rate is capped at 30 FPS)
@@ -210,23 +240,31 @@ class LiveStreamPeriodogram:
                     x_sig, ts = xp.cont_raw(round(self.display_s * self.samp_freq), [self.stream_ch])
                 elif self.stream_ty == 'lfp':
                     x_sig, ts = xp.cont_lfp(round(self.display_s * self.samp_freq), [self.stream_ch])
-                elif self.stream_ty == 'hires':
+                elif self.stream_ty == 'hi-res':
                     x_sig, ts = xp.cont_hires(round(self.display_s * self.samp_freq), [self.stream_ch])
                 elif self.stream_ty == 'hifreq':
                     x_sig, ts = xp.cont_hifreq(round(self.display_s * self.samp_freq), [self.stream_ch])
-
+            
                 # Calculation of FFT and periodogram data
                 sig_sample = x_sig[-self.window_samp:]
                 psd_sample = (1 / (self.samp_freq * len(sig_sample))) * \
                              np.square(np.abs(fft(sig_sample, 2 * self.N)))  # PSD calculation
                 x_psd = 10 * np.log10(psd_sample[self.f_ind])
-
+                
                 # Plot updated data and rescale axes as needed
-                self.h_sig.set_ydata(x_sig)
-                self.ax_sig.relim()
+                # ipdb.set_trace()
+                x= np.random.random_sample(size=int(len(x_sig)/10000))
+                y= np.random.random_sample(size=int(len(x_sig)/10000))
+
+                x_og = np.append(x_og, x)
+                y_og = np.append(y_og, y)
+                self.h_sig.set_offsets(np.c_[x_og,y_og])
+                self.intensity = np.concatenate((np.array(self.intensity)*0.96, np.ones(len(x))))
+                self.h_sig.set_array(self.intensity)
+                # self.ax_sig.relim()
                 self.ax_sig.autoscale_view()
                 self.h_psd.set_ydata(x_psd)
-                plt.pause(0.001)  # Small pause to update the plot
+                plt.pause(0.1)  # Small pause to update the plot
 
                 t0 = t1
 
@@ -246,6 +284,8 @@ class LiveStreamPeriodogram:
                 print(f'250 to 7.5k Hz uV RMS noise: {x_rms_spike:.5f}\n')
 
                 t2 = t1
+                plt.pause(.001)
+            # plt.waitforbuttonpress()
 
 
 if __name__ == '__main__':
