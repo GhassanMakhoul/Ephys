@@ -1,4 +1,4 @@
-function [mpdc] = calc_pdc(inp_f, shuffle, trial_len, ntrials)
+function [mpdc] = calc_pdc(ft_data, shuffle, cfg)
     %% Stated function: 
     % EDF_chunk ->PDC from n_trials-> PDC        \
     %                                             -> compare(PDC,Null_pdc) -> sig_pdc 
@@ -8,29 +8,18 @@ function [mpdc] = calc_pdc(inp_f, shuffle, trial_len, ntrials)
     tic
     addpath('/home/ghassan/Documents/Research/Ephys/Code/fieldtrip-master/');
     %fieldtrip expects chars use single ' quotes
-    data = load(inp_f);
-    % Define 5-second trials
-    ft_data.label = cellstr(data.bip_montage_label);       % cell-array containing strings, Nchan*1
-    ft_data.fsample = data.sampling_freq;   % sampling frequency in Hz, single number
-    ft_data.trial{1,1} = data.filt_data; % cell-array containing a data matrix for each trial (1*Ntrial), each data matrix is a Nchan*Nsamples matrix
-    ft_data.time{1,1} = (0:size(data.filt_data,2)-1)/ft_data.fsample;      % cell-array containing a time axis for each trial (1*Ntrial), each time axis is a 1*Nsamples vector
-    ft_data.nSamples = size(data.filt_data,2);
-    
-    cfg = [];
-    cfg.continuous   = 'yes';
-    [ft_data_preprocessed] = ft_preprocessing(cfg, ft_data);
-    
-    cfg = [];
-    cfg.length = trial_len;
-    data_segmented = ft_redefinetrial(cfg, ft_data_preprocessed);
- 
 
-    nnodes = length(ft_data.label);
-    ttimepoints = ft_data.fsample*trial_len;
+    if numel(cfg) == 0
+        %get MVAR fit (assuming it's 5)
+        cfg = [];
+        cfg.order = 5; %TODO make modular
+        cfg.method = 'bsmart';
+    end
+    
     % this should really get its own script too. 
     % TODO get to the bottom of this damn null modeling business
     disp(shuffle)
-    if strcmp(shuffle, '1')
+    if shuffle
         mshuff = ntrials;
         %shuffling on first trial only
         shuff_trial = zeros(ttimepoints,nnodes,mshuff);
@@ -47,17 +36,15 @@ function [mpdc] = calc_pdc(inp_f, shuffle, trial_len, ntrials)
         end
     end
     
-    %get MVAR fit (assuming it's 5)
-    cfg = [];
-    cfg.order = 5;
-    cfg.method = 'bsmart';
+    
     %feeding in data from above simulation
-    mdata = ft_mvaranalysis(cfg, data_segmented);
+    mdata = ft_mvaranalysis(cfg, ft_data);
     mdata.coeffs;
 
     %% computing the parametric spectral transfer matrix
     cfg             = [];
     cfg.method      = 'mvar';
+    cfg.keeptrials  = 'yes';
     mfreq           = ft_freqanalysis(cfg, mdata);
 
     %%

@@ -2,7 +2,8 @@ connectivity:
   metric : 'pdc'
   shuffle : 0
   n_trials : 4
-  win_duration : 20
+  win_duration : 10
+  overlap : 0.1
   stride : -1
   agg : 'mean'
-  viz_path : "../viz/pdc_calculations/"
+  viz_path : "../viz/network_calculations/"
